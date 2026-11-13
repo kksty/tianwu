@@ -1,3 +1,4 @@
 [submodule "cyber-ui"]
 	path = cyber-ui
-	url = https://github.com/chainreactors/cyber-ui.git
+	url = https://github.com/kksty/cyber-ui.git
+	branch = tianwu/console-tokens

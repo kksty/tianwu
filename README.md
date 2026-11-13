@@ -49,7 +49,7 @@ git clone --branch tianwu/fixes https://github.com/kksty/cyber-harness.git
 cd tianwu
 ```
 
-`cyber-ui` 是控制台组件库子模块。已有 checkout 可运行 `git submodule update --init --recursive` 补齐。harness 独立维护，使用 fork 的 `tianwu/fixes` 分支；主项目仅维护 `main`。
+`cyber-ui` 是控制台组件库子模块。已有 checkout 可运行 `git submodule update --init --recursive` 补齐。子模块指向 fork `kksty/cyber-ui` 的 `tianwu/console-tokens` 分支（控制台改版用到的主题 token / 排版调整），`origin` 就是这个 fork；上游仍是 `chainreactors/cyber-ui`，已配置为子模块的 `upstream` remote，需要同步时 `git -C cyber-ui fetch upstream && git -C cyber-ui merge upstream/main`，再把 token 分支继续维护。harness 独立维护，使用 fork 的 `tianwu/fixes` 分支；主项目仅维护 `main`。
 
 ### 2. 构建并启动
 
