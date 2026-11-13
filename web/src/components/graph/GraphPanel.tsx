@@ -10,7 +10,7 @@
 // polls (runs/changes) stop with the map, as before.
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Crosshair, Plus, RefreshCw } from 'lucide-react'
+import { Crosshair, Download, Plus, RefreshCw } from 'lucide-react'
 import { Button } from '@cyber/ui'
 import { CommanderCard } from '@/components/CommanderCard'
 import { CreateChildIntentDialog } from '@/components/CreateChildIntentDialog'
@@ -21,8 +21,9 @@ import { ProjectTokens } from '@/components/TokenUsage'
 import { cameraStorageKey } from '@/graph/camera'
 import type { GraphNode } from '@/graph/model'
 import type { LayoutMode } from '@/graph/sim'
+import { hasNewContent, liveReloadDelay, shouldLiveReload } from '@/lib/graph-live'
 import { useSessionState } from '@/lib/session-state'
-import { api } from '@/lib/api'
+import { api, type ChangePage } from '@/lib/api'
 import type { useGraphSnapshot } from '@/lib/graph-data'
 import { useDebounced, useLoad, usePoll } from '@/lib/hooks'
 import type { BoardResponse, ProjectInfo } from '@/lib/types'
@@ -83,8 +84,34 @@ export function GraphPanel({
   const profiles = useLoad(api.modelProfiles, [])
   // A graph can change while the operator reads it. The changes probe is a
   // *notice*, never a merge: a new ledger version must be admitted by reloading
-  // a fresh snapshot, because pages of two snapshots cannot be mixed.
-  const changes = usePoll(api.changes, 6000)
+  // a fresh snapshot, because pages of two snapshots cannot be mixed. 实时 turns
+  // that notice into an automatic whole-snapshot reload (docs/33 §4.6). The
+  // probe asks `since=<snapshot seq>`, so run/message bookkeeping (which moves
+  // the durable seq without a versions row) does not trigger a reload.
+  const changesSince = useRef<number | undefined>(undefined)
+  const changes = usePoll(
+    () => {
+      const since = graph.data?.snapshot_version?.seq
+      changesSince.current = since
+      // Before the first snapshot lands there is no seq to compare against; a
+      // placeholder keeps the poll quiet instead of reading the whole journal.
+      return since === undefined
+        ? Promise.resolve<ChangePage>({
+            changes: [],
+            has_more: false,
+            high_watermark: { epoch: '', seq: 0 },
+            pending: 0,
+          })
+        : api.changes({ since })
+    },
+    6000,
+    [graph.data?.snapshot_version?.seq],
+  )
+  // 实时 is on by default: the operator asked to see facts as they land. The
+  // switch lets a reader freeze the map while inspecting a large or running
+  // engagement; the snapshot contract itself does not change either way.
+  const [live, setLive] = useSessionState('graph.live', true)
+  const lastLiveReload = useRef(0)
 
   const [savedFilters, saveFilters] = useSessionState('graph.filters', { ...defaultGraphFilters(), hiddenKinds: [] as string[] })
   const filters = useMemo<GraphFiltersState>(() => ({ ...savedFilters, hiddenKinds: new Set(savedFilters.hiddenKinds) }), [savedFilters])
@@ -104,7 +131,6 @@ export function GraphPanel({
       return 'layered'
     }
   })
-  const [goalsOpen, setGoalsOpen] = useState(false)
   // 下发 lives on the 图谱 page's right dock: intervention next to the map. The
   // full conversation record stays in the 通信 page.
   const [chatDock, setChatDock] = useState(false)
@@ -184,8 +210,9 @@ export function GraphPanel({
     return set
   }, [query, model])
 
-  // Open goals are not graph nodes (they have no produced fact to anchor to);
-  // the graph shows them as a compact card instead.
+  // An unmet goal has no completed work to stand on, so it is not a map node
+  // and owns no edge: the compact 终点 card states the target instead. A met
+  // goal becomes a real node attached to its evidence fact (buildGraph).
   const openGoals = useMemo(() => (graph.data?.goals ?? []).filter((g) => !g.met), [graph.data])
 
   // Selection lookup goes through the model indexes (T2): no linear scans on a
@@ -249,11 +276,42 @@ export function GraphPanel({
   const totalNodes = graph.data?.total ?? 0
   const snapshotVersion = graph.data?.snapshot_version
   const watermark = changes.data?.high_watermark
-  const hasNewChanges = Boolean(
-    snapshotVersion &&
-      watermark &&
-      (watermark.epoch !== snapshotVersion.epoch || watermark.seq > snapshotVersion.seq),
+  // A stale probe response from an older snapshot cannot speak for the one on
+  // screen: only count its pending rows when it was asked with this snapshot's
+  // seq, so switching snapshots does not replay an old "new changes" verdict.
+  const probeMatchesSnapshot =
+    snapshotVersion !== undefined &&
+    changesSince.current !== undefined &&
+    changesSince.current === snapshotVersion.seq
+  const hasNewChanges = hasNewContent(
+    snapshotVersion,
+    watermark,
+    probeMatchesSnapshot ? (changes.data?.pending ?? 0) : 0,
   )
+
+  // 实时: a newer ledger watermark with content rows swaps in a whole new
+  // snapshot; it never merges pages of two versions and never touches the
+  // operator's camera. The throttle keeps a busy run from re-fetching the batch
+  // on every poll.
+  useEffect(() => {
+    if (
+      !shouldLiveReload({
+        live,
+        hidden: document.visibilityState === 'hidden',
+        loading: graph.loading,
+        busy: graph.busy,
+        hasNewChanges,
+      })
+    ) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState === 'hidden') return
+      lastLiveReload.current = Date.now()
+      graph.reload()
+    }, liveReloadDelay(Date.now(), lastLiveReload.current))
+    return () => window.clearTimeout(timer)
+  }, [live, graph.loading, graph.busy, graph.reload, hasNewChanges])
 
   function refresh() {
     graph.reload()
@@ -293,19 +351,37 @@ export function GraphPanel({
       }
       scroll={false}
       className="relative"
-      actions={
-        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11px]">
+      meta={
+        <>
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
-          <span className="whitespace-nowrap">
+          <span
+            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/20 px-2 font-mono text-[11px] text-muted-foreground"
+            title="当前画面固定在这份快照；斜杠后是账本里的节点总数"
+          >
             快照已载 {loadedNodes}/{totalNodes} 节点
           </span>
-          {/* The one place the project token total lives now (docs/34 §3): the
-              whole project, including cached input, reported by the model. */}
-          <ProjectTokens usage={board?.usage} />
-          {hasNewChanges && (
+          <Button
+            size="sm"
+            variant={live ? 'outline' : 'ghost'}
+            className="h-7 px-2.5 text-[12px]"
+            aria-pressed={live}
+            onClick={() => setLive((value) => !value)}
+            title={
+              live
+                ? '实时刷新已开：账本出现新变化时自动重取一份完整新快照（相机保留；会回到首屏批次，已加载更多页的进度会重置）'
+                : '实时刷新已关：有新变化时只提示，手动点刷新才换快照'
+            }
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-success' : 'bg-muted-foreground'}`}
+            />
+            实时
+          </Button>
+          {!live && hasNewChanges && (
             <Button
               size="sm"
               variant="soft"
+              className="h-7 px-2.5 text-[12px]"
               onClick={refresh}
               title="账本已有新变化。刷新会重取一份新快照；旧快照的页面不会被静默拼接。"
             >
@@ -313,19 +389,22 @@ export function GraphPanel({
             </Button>
           )}
           {graph.data?.has_more && (
-            <>
-              <span className="max-w-[220px] text-[10px] leading-tight text-muted-foreground">
-                图是快照，未载入的部分在账本里，点击加载更多
-              </span>
-              <Button size="sm" variant="ghost" disabled={graph.busy} onClick={() => void graph.more()}>
-                加载更多
-              </Button>
-            </>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2.5 text-[12px]"
+              disabled={graph.busy}
+              onClick={() => void graph.more()}
+              title="图是快照：未载入的部分在账本里；点击加载下一页"
+            >
+              加载更多
+            </Button>
           )}
           {graph.root && (
             <Button
               size="sm"
               variant="ghost"
+              className="h-7 px-2.5 text-[12px]"
               onClick={() => {
                 onSelect(null)
                 void graph.focus('')
@@ -334,18 +413,28 @@ export function GraphPanel({
               全图概览
             </Button>
           )}
+          <span className="hidden h-4 w-px bg-border/70 sm:block" aria-hidden />
+          {/* The one place the project token total lives now (docs/34 §3): the
+              whole project, including cached input, reported by the model. */}
+          <ProjectTokens usage={board?.usage} />
+        </>
+      }
+      actions={
+        <>
           <a
-            className="text-info"
+            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-border/60 px-2 text-[12px] text-info transition-colors hover:bg-muted/40"
             href={`/p/${encodeURIComponent(current)}/api/graph/export`}
             download
             title="导出账本里的全图（不是当前快照页）"
           >
+            <Download className="h-3.5 w-3.5" />
             导出全图
           </a>
-          <Button size="sm" variant="ghost" onClick={refresh} title="读取最新版本并刷新图谱">
+          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[12px]" onClick={refresh} title="立即重取最新快照">
             <RefreshCw className="h-3.5 w-3.5" />
+            刷新
           </Button>
-        </div>
+        </>
       }
     >
       {/* The canvas is the first and only full-bleed child of the page body. At
@@ -401,38 +490,28 @@ export function GraphPanel({
         onReheat={() => canvas.current?.reheat()}
       />
 
-      {/* goals + legend + live commander card: the bottom-left corner is
-          "where are we going and what does the colour mean". Open goals are not
-          graph nodes, so they live here; an achieved goal becomes a target node
-          on the map. The legend (T7) starts collapsed because it is a reference,
-          not the content. */}
+      {/* legend + live commander card: the bottom-left corner is "what does the
+          colour mean" plus the commander's current stance. An unmet goal is not
+          connected to the chain, so it is a compact 终点 card here instead of a
+          guessed node. */}
       <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100vw-1.5rem)] flex-col gap-2">
         {openGoals.length > 0 && (
-          <div className="pointer-events-auto max-w-[268px] rounded-lg border border-border bg-card/85 px-2.5 py-1.5 text-[11px] shadow-lifted backdrop-blur">
-            <button
-              type="button"
-              onClick={() => setGoalsOpen((v) => !v)}
-              className="flex w-full items-center gap-1.5 text-left"
-              title={goalsOpen ? '收起未达成目标' : '展开全部未达成目标'}
-            >
+          <div className="pointer-events-auto max-w-[280px] rounded-lg border border-border bg-card/85 px-2.5 py-2 text-[11px] shadow-lifted backdrop-blur">
+            <div className="flex items-center gap-1.5">
               <Crosshair className="h-3 w-3 shrink-0 text-warning" />
-              <span className="font-semibold text-foreground">未达成目标 · {openGoals.length}</span>
-              <ChevronDown
-                className={`ml-auto h-3 w-3 text-muted-foreground transition-transform ${goalsOpen ? '' : '-rotate-90'}`}
-              />
-            </button>
-            <div className={goalsOpen ? 'max-h-52 overflow-y-auto' : ''}>
-              {(goalsOpen ? openGoals : openGoals.slice(0, 3)).map((g) => (
-                <div key={g.id} className="tw-break mt-0.5 text-[10.5px] text-muted-foreground" title={g.statement}>
+              <span className="font-semibold text-foreground">
+                终点 · 未达成{openGoals.length > 1 ? `（${openGoals.length}）` : ''}
+              </span>
+            </div>
+            <div className="mt-1 space-y-1">
+              {openGoals.slice(0, 2).map((g) => (
+                <div key={g.id} className="tw-break line-clamp-2 leading-relaxed text-muted-foreground" title={g.statement}>
                   {g.statement}
                 </div>
               ))}
             </div>
-            {!goalsOpen && openGoals.length > 3 && (
-              <div className="mt-0.5 text-[10px] text-muted-foreground">…还有 {openGoals.length - 3} 条</div>
-            )}
-            <div className="mt-0.5 text-[10px] text-muted-foreground/80">
-              目标不上图；达成后作为终点接到证据事实上
+            <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/80">
+              未完成前不画进链路，也不连线；达成后接到证据事实上
             </div>
           </div>
         )}
@@ -444,8 +523,26 @@ export function GraphPanel({
 
       {/* live */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-border bg-card/85 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur">
-        <span className={`h-1.5 w-1.5 rounded-full ${running > 0 ? 'animate-pulse bg-info' : 'bg-muted-foreground'}`} />
-        {running > 0 ? `${running} 个意图在跑` : '事实意图图每 6 秒刷新'}
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            running > 0 ? 'animate-pulse bg-info' : live ? 'bg-success' : 'bg-muted-foreground'
+          }`}
+        />
+        <span>
+          {running > 0
+            ? `${running} 个意图在跑`
+            : live
+              ? hasNewChanges
+                ? '检测到新变化，正在重取快照…'
+                : '实时 · 每 6 秒检测新变化'
+              : '快照视图 · 有新变化时提示刷新'}
+        </span>
+        {running > 0 && (
+          <>
+            <span className="text-muted-foreground/50">·</span>
+            <span>{live ? '实时' : '快照'}</span>
+          </>
+        )}
       </div>
 
       {/* Minimap: its own canvas (the acceptance script finds the main canvas by
@@ -477,9 +574,9 @@ export function GraphPanel({
 
       {/* Hover is published by the canvas (T5's view-store) and subscribed only
           by this inspector: moving the pointer no longer re-renders GraphPanel.
-          It overlays the pinned panel, which is what the px-identical card used
-          to do by replacing it. */}
-      {!chatDock && !listView && (
+          When a node is pinned the right side belongs to its full NodePanel, so
+          hovering other nodes must not cover it with a second card. */}
+      {!chatDock && !listView && !node && (
         <GraphHoverInspector model={model} selected={selected} pulseFor={pulseFor} />
       )}
 

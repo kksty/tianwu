@@ -1,12 +1,14 @@
-// Built-in project constraints and the project-name rule the console shows.
+// Built-in project constraints the console proposes at creation time.
 //
-// Creating an engagement should need one paragraph: where we are starting and
-// what the operator wants. The standing constraints (read-only first, stay in
-// scope, protect target data, stop on unclear ownership) are a document the
-// operator can edit or cancel. Evidence and handoff requirements belong to
-// the role prompts and continue to apply when this document is cancelled,
-// not something the program parses. It becomes the project `description`,
-// which the brief/decision paths carry verbatim.
+// Creating an engagement needs an explicit display name and one paragraph:
+// where we are starting and what the operator wants. The directory id is a
+// short random id decoupled from the name, so the console shows no derived-name
+// preview. The standing constraints (read-only first, stay in scope, protect
+// target data, stop on unclear ownership) are a document the operator can edit
+// or cancel. Evidence and handoff requirements belong to the role prompts and
+// continue to apply when this document is cancelled, not something the program
+// parses. It becomes the project `description`, which the brief/decision paths
+// carry verbatim.
 //
 // The text is canonical copy: tests pin it so a casual edit cannot quietly
 // weaken a standing constraint.
@@ -21,21 +23,4 @@ export const DEFAULT_PROJECT_CONSTRAINTS =
  *  (switch off) is sent as empty, never as stale text. */
 export function projectDescriptionDraft(enabled: boolean, text: string): string {
   return enabled ? text.trim() : ''
-}
-
-/**
- * Local preview of the server's name derivation (cmd/tw/hub.go
- * projectNameFromBrief): the first non-empty line, trimmed, at most 40 runes,
- * with an ellipsis when clipped; an empty brief falls back to 未命名项目. The
- * server stays authoritative; this exists so "leave the name empty" is not a
- * mystery in the dialog.
- */
-export function projectNameFromBrief(brief: string): string {
-  for (const line of brief.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const runes = Array.from(trimmed)
-    return runes.length > 40 ? `${runes.slice(0, 40).join('')}…` : trimmed
-  }
-  return '未命名项目'
 }

@@ -279,7 +279,8 @@ export class ForceSim {
       const t = nodeOf(e.target)
       if (s && t && t.type === 'step') addChild(t, s)
     }
-    // An achieved goal is a leaf of the fact that carries its evidence.
+    // An achieved goal is a leaf of the fact that carries its evidence. Unmet
+    // goals are not map nodes at all, so there is nothing to attach.
     for (const e of this.edges) {
       if (e.kind !== 'goal') continue
       const s = nodeOf(e.source)

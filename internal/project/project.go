@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -461,8 +460,10 @@ func (m *Manager) First() *Project {
 	return all[0]
 }
 
-// Create makes a new engagement. The id is derived from the name when the name
-// is ASCII-safe, so URLs stay readable; otherwise a short random id is used.
+// Create makes a new engagement. The directory id is a short random id,
+// independent of the display name: renaming the engagement never moves its
+// directory, and a name/brief naming a target host or URL does not leak into the
+// on-disk path or the console URL. The readable name lives in the manifest.
 func (m *Manager) Create(name, scope string) (*Project, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -470,14 +471,12 @@ func (m *Manager) Create(name, scope string) (*Project, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	base := slug(name)
-	if base == "" {
-		// A name in Chinese has no slug; a short random id still beats a
-		// numeric one because it does not collide after a rollback.
-		base = "prj-" + shortID()
-	}
-	return m.create(base, name, scope)
+	return m.create(newProjectID(), name, scope)
 }
+
+// newProjectID is the stable, opaque directory address. It is deliberately
+// short so URLs stay readable even though they no longer spell the project name.
+func newProjectID() string { return "p-" + shortID()[:8] }
 
 // EnsureDefault returns the default project, creating it on first start so the
 // console has something to show. It is always called with the fixed id so the
@@ -720,18 +719,6 @@ func (p *Project) write() error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-func slug(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = slugRe.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	if len(s) > 32 {
-		s = strings.Trim(s[:32], "-")
-	}
-	return s
 }
 
 func shortID() string { return store.NewID("p")[2:] }

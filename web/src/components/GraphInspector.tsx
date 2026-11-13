@@ -14,13 +14,40 @@ function statusText(status?: string): string {
 function boundaryText(state?: string): string {
   switch (state) {
     case 'not_loaded':
-      return '此页快照未载入这条引用：点开沿它加载邻域，不代表它缺失。'
+      return '当前快照没有载入这条引用指向的记录（账本里仍然存在）。它不是孤立事实，也不代表数据缺失：在图谱里点这个小节点，会沿引用加载它的邻域。'
     case 'missing':
-      return '账本里也没有这个 id：引用缺失，展开不会变出内容。'
+      return '账本里也没有这个 id：引用已经缺失，点开不会变出内容。'
     case 'rejected':
-      return '引用的事实已被明确否定：仍存在于账本，但不应作为当前依据。'
+      return '这条引用指向的事实已被明确否定：记录还在账本里，但不应作为当前依据。'
     default:
-      return '尚未载入的引用：点开沿它加载邻域。'
+      return '尚未载入的引用：点开可以沿它加载邻域。'
+  }
+}
+
+/** The short title of a boundary leaf, so the card never reads like a fact row. */
+function boundaryTitle(state?: string): string {
+  switch (state) {
+    case 'not_loaded':
+      return '未载入的引用'
+    case 'missing':
+      return '引用缺失'
+    case 'rejected':
+      return '已否定的引用'
+    default:
+      return '引用边界'
+  }
+}
+
+function boundaryBadge(state?: string): { label: string; variant: 'info' | 'warning' | 'muted' } {
+  switch (state) {
+    case 'not_loaded':
+      return { label: '未载入', variant: 'info' }
+    case 'missing':
+      return { label: '缺失', variant: 'warning' }
+    case 'rejected':
+      return { label: '已否定', variant: 'warning' }
+    default:
+      return { label: '引用', variant: 'muted' }
   }
 }
 
@@ -85,11 +112,22 @@ export function GraphInspector({
   const intent = node?.meta?.intent ?? edge?.intent
   const edgeInfo = edge ? edgeBadge(edge.kind) : null
   const status = node?.status ?? edge?.status ?? intent?.status
+  // A boundary leaf is a reference marker, not a fact/intent row: it gets its
+  // own title, badge and explanation instead of the generic node metadata.
+  const isBoundary = node?.type === 'boundary'
+  const boundaryInfo = isBoundary ? boundaryBadge(node.boundaryState) : null
   // An intent node/edge is the direction; a relation edge names the relation.
   const kind = fact?.kind ?? (intent || edge ? 'intent' : (node?.type ?? ''))
-  const badge = edgeInfo && !node ? edgeInfo : { label: kind, variant: badgeVariant(kind, status) }
-  const title = node?.label || intent?.title || edge?.label || edgeInfo?.label || ''
-  const summary = node?.sub || intent?.description || ''
+  const badge = boundaryInfo
+    ? { label: '引用边界', variant: 'muted' as const }
+    : edgeInfo && !node
+      ? edgeInfo
+      : { label: kind, variant: badgeVariant(kind, status) }
+  const title = isBoundary
+    ? boundaryTitle(node.boundaryState)
+    : node?.label || intent?.title || edge?.label || edgeInfo?.label || ''
+  const summary = isBoundary ? '' : node?.sub || intent?.description || ''
+  const hasDetails = Boolean(fact || intent || goal || project || pulse)
   const warnings = node?.warnings ?? []
   // fact_meta 在 projection=graph 下仍带着复核状态与数量（evidence_ids/refs 被清空）：
   // 节点字段优先，原文数组只在整页详情可用时兜底。
@@ -107,6 +145,11 @@ export function GraphInspector({
         <Badge size="sm" variant={badge.variant}>
           {badge.label}
         </Badge>
+        {boundaryInfo && (
+          <Badge size="sm" variant={boundaryInfo.variant}>
+            {boundaryInfo.label}
+          </Badge>
+        )}
         {status && statusText(status) && (
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             <span
@@ -140,7 +183,13 @@ export function GraphInspector({
           </Badge>
         )}
         <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-          {node?.type === 'ghost' ? 'ghost intent' : edgeInfo ? edgeInfo.label : (node?.type ?? 'intent')}
+          {isBoundary
+            ? '引用'
+            : node?.type === 'ghost'
+              ? 'ghost intent'
+              : edgeInfo
+                ? edgeInfo.label
+                : (node?.type ?? 'intent')}
         </span>
       </div>
 
@@ -151,13 +200,25 @@ export function GraphInspector({
             {summary}
           </div>
         )}
-        {node?.type === 'boundary' && (
-          <div className="rounded border border-border/60 bg-muted/30 px-1.5 py-1 text-[10.5px] leading-relaxed text-muted-foreground">
-            {boundaryText(node.boundaryState)}
-          </div>
+        {isBoundary && (
+          <>
+            <div className="tw-break rounded-md border border-border/60 bg-muted/25 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+              {boundaryText(node?.boundaryState)}
+            </div>
+            <div className="flex items-start gap-1.5 text-[11px] leading-relaxed">
+              <span className="shrink-0 text-muted-foreground">引用 id</span>
+              <span className="tw-break min-w-0 flex-1 font-mono text-foreground/85">{node?.boundary}</span>
+            </div>
+            {node?.boundaryState === 'not_loaded' && (
+              <div className="text-[11px] leading-relaxed text-muted-foreground">
+                在图谱里点击这个边界节点，会沿它加载邻域；它不会像事实节点那样固定详情。
+              </div>
+            )}
+          </>
         )}
 
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border/60 pt-1.5 text-[11px]">
+        {hasDetails && (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border/60 pt-1.5 text-[11px]">
           {fact && (
             <>
               <Meta label="置信" value={fact.confidence || '—'} />
@@ -257,7 +318,8 @@ export function GraphInspector({
               <Meta label="事实" value={fmtInt(project.facts)} />
             </>
           )}
-        </div>
+          </div>
+        )}
 
         {warnings.length > 0 && (
           <div className="space-y-1 rounded border border-warning/30 bg-warning/10 px-2 py-1.5">
@@ -285,7 +347,13 @@ export function GraphInspector({
       </div>
 
       <div className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
-        {pinned ? '已固定 · 点击空白处取消' : '单击节点固定详情 · 移开鼠标即隐藏'}
+        {isBoundary
+          ? node?.boundaryState === 'not_loaded'
+            ? '点开边界节点加载邻域 · 它不是孤立事实'
+            : '引用边界 · 它不是孤立事实'
+          : pinned
+            ? '已固定 · 点击空白处取消'
+            : '单击节点固定详情 · 移开鼠标即隐藏'}
       </div>
     </div>
   )

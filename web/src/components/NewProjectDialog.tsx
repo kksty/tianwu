@@ -1,13 +1,14 @@
-// Simplified bootstrap: one paragraph + the built-in constraint document.
+// Simplified bootstrap: a display name + one paragraph + the built-in
+// constraint document.
 //
-// The operator should not have to name the project, write a goal, or scope the
-// authorization in a separate box: a paragraph saying where we start and what
-// we want becomes the project brief (scope), the server derives a display name
-// from its first line, and the standing constraints are a prefilled document
+// The name is only a display name: the directory id is a short random id
+// (p-xxxxxxxx) decoupled from it, so renaming a project never moves its
+// directory. A paragraph saying where we start and what we want becomes the
+// project brief (scope), and the standing constraints are a prefilled document
 // the operator may edit or cancel (it becomes the project description). Starting
 // a round is the default and does not require a goal: the commander writes goals
 // into the ledger from the brief.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   Callout,
@@ -18,15 +19,12 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
+  Input,
   Switch,
   Textarea,
 } from '@cyber/ui'
 import { api } from '@/lib/api'
-import {
-  DEFAULT_PROJECT_CONSTRAINTS,
-  projectDescriptionDraft,
-  projectNameFromBrief,
-} from '@/lib/project-defaults'
+import { DEFAULT_PROJECT_CONSTRAINTS, projectDescriptionDraft } from '@/lib/project-defaults'
 
 export function NewProjectDialog({
   open,
@@ -37,6 +35,8 @@ export function NewProjectDialog({
   onOpenChange: (v: boolean) => void
   onCreated?: () => void
 }) {
+  // The display name: required, and the only thing a rename would change.
+  const [projectName, setProjectName] = useState('')
   // The one required input: where we start and what we want.
   const [brief, setBrief] = useState('')
   // The built-in constraint document is on by default, editable, and can be
@@ -45,8 +45,15 @@ export function NewProjectDialog({
   const [constraints, setConstraints] = useState(DEFAULT_PROJECT_CONSTRAINTS)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // The name is only flagged after a submit attempt: opening an empty form must
+  // not look like the operator already made a mistake.
+  const [attempted, setAttempted] = useState(false)
 
-  const namePreview = projectNameFromBrief(brief)
+  useEffect(() => {
+    if (open) setAttempted(false)
+  }, [open])
+
+  const nameBlank = !projectName.trim()
   const constraintsEdited = constraints !== DEFAULT_PROJECT_CONSTRAINTS
 
   function toggleConstraints(on: boolean) {
@@ -55,18 +62,28 @@ export function NewProjectDialog({
   }
 
   async function submit(start: boolean) {
+    const name = projectName.trim()
     const paragraph = brief.trim()
+    setAttempted(true)
+    if (!name) {
+      setError('项目名称必填：这是控制台与项目列表里的显示名，不能用空白。')
+      return
+    }
     if (!paragraph) {
-      setError('先写一段目标与起点：项目名也会自动从简报第一行取。')
+      setError('先写一段目标与起点：这段话会成为项目简报。')
       return
     }
     setBusy(true)
     setError('')
     try {
-      const created = await api.createProjectFromBrief(
+      const created = await api.createProject(
+        name,
         paragraph,
+        '',
+        '',
         projectDescriptionDraft(constraintsOn, constraints),
       )
+      setProjectName('')
       setBrief('')
       setConstraintsOn(true)
       setConstraints(DEFAULT_PROJECT_CONSTRAINTS)
@@ -88,10 +105,24 @@ export function NewProjectDialog({
         <DialogHeader>
           <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
-            只写一段话：目标与起点。项目名自动取简报第一行；内置约束文档随项目附带，可以编辑或取消。指挥官会根据简报自己划分目标与收工条件，不需要在这里写目标。
+            项目名称 + 一段自然语言简报；起点就是这段简报，终点由指挥官拆成唯一目标。名称只是显示名：目录使用稳定的短 ID（p-xxxxxxxx），之后改名不会改路径。内置约束文档随项目附带，可以编辑或取消。
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <Field
+            label="项目名称"
+            hint="控制台与项目列表里的显示名，必填；目录使用与名称无关的稳定短 ID，改名不会改路径。"
+            error={attempted && nameBlank ? '项目名称不能为空：请填写一个显示名（不能用空白）。' : undefined}
+          >
+            <Input
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              autoFocus
+              aria-label="项目名称"
+              placeholder="例如：NX 门户外网评估"
+            />
+          </Field>
+
           <Field
             label="用一段话说明目标与起点"
             hint="目标 URL/域名、已知资产、背景、已知的结束条件；这段话会作为项目简报原样交给指挥官与执行者。"
@@ -100,7 +131,6 @@ export function NewProjectDialog({
               rows={6}
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
-              autoFocus
               placeholder={
                 '例如：我们的目标是评估 example.com 的外网门户，起点是首页和登录口，已知一台测试账号；\n' +
                 '希望确认是否存在未授权访问，并留下可复核的原始响应。\n' +
@@ -108,11 +138,6 @@ export function NewProjectDialog({
               }
             />
           </Field>
-
-          <div className="text-[11px] text-muted-foreground">
-            项目名：留空自动取简报第一行
-            {brief.trim() ? `（预览：「${namePreview}」，以服务端为准）` : '（第一行非空内容）'}。
-          </div>
 
           <div className="rounded-md border border-border bg-muted/30">
             <div className="flex items-start gap-3 px-3 py-2">
@@ -171,10 +196,14 @@ export function NewProjectDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             取消
           </Button>
-          <Button variant="ghost" onClick={() => void submit(false)} disabled={busy || !brief.trim()}>
+          <Button
+            variant="ghost"
+            onClick={() => void submit(false)}
+            disabled={busy || nameBlank || !brief.trim()}
+          >
             只创建
           </Button>
-          <Button onClick={() => void submit(true)} disabled={busy || !brief.trim()}>
+          <Button onClick={() => void submit(true)} disabled={busy || nameBlank || !brief.trim()}>
             {busy ? '创建中…' : '创建并开始'}
           </Button>
         </DialogFooter>

@@ -145,7 +145,7 @@ export function GraphLegend({ className }: { className?: string }) {
               <span className="h-2 w-3.5 shrink-0 rounded-sm border border-[#8b8b93]" aria-hidden="true" />
               项目/范围
             </Row>
-            <Row title="目标不单独上图：达成后作为终点接到承载证据的事实上">
+            <Row title="目标不单独上图：达成后作为终点接到承载证据的事实上；未达成时只在左下「终点」卡显示">
               <span className="h-2 w-3.5 shrink-0 rounded-sm border border-[#39d98a]" aria-hidden="true" />
               目标（达成后）
             </Row>
@@ -232,14 +232,14 @@ export function GraphLegend({ className }: { className?: string }) {
               />
               键盘焦点
             </Row>
-            <Row title="引用存在但此页未载入（快照分页）：点开沿该引用加载邻域，不是缺失">
+            <Row title="引用边界：引用指向的记录不在当前快照（账本里仍然存在）。这不是孤立事实，也不是缺失；点开加载它的邻域">
               <span
                 className="h-3 w-3 shrink-0 rounded-full border border-dashed border-[#9aa0aa]"
                 aria-hidden="true"
               />
-              未载入（可展开）
+              未载入引用（可展开）
             </Row>
-            <Row title="账本里也没有这个 id：引用缺失，展开不会变出内容">
+            <Row title="引用指向的 id 在账本里也不存在：点开不会变出内容">
               <span
                 className="h-3 w-3 shrink-0 rounded-full border border-dashed"
                 style={{ borderColor: 'rgba(255,77,77,0.72)' }}
@@ -253,7 +253,7 @@ export function GraphLegend({ className }: { className?: string }) {
                 style={{ borderColor: 'rgba(232,121,249,0.72)' }}
                 aria-hidden="true"
               />
-              已否定
+              已否定引用
             </Row>
           </div>
           <div className="mb-1 mt-2 uppercase tracking-wider text-muted-foreground">焦点叠层</div>

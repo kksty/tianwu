@@ -1373,16 +1373,43 @@ export function paint(o: PaintOptions) {
     }
 
     // Hover/search get a quiet halo. A selected node uses the focus dim instead
-    // of a big ring: the related graph staying bright is the highlight.
+    // of a big ring: the related graph staying bright is the highlight. The
+    // ring hugs the drawn glyph (a ~2.5px screen-space pad); the old +6 world
+    // units read as a loud "big ring", and non-layered steps used to get a
+    // Math.hypot-sized circle around their diamond.
     if ((isHover || isMatch) && !isSel) {
+      const pad = screenPad(cam.k, 2.5)
       ctx.beginPath()
-      if (o.layered && n.type === 'step') {
-        roundRect(ctx, n.x - n.w - 6, n.y - n.h - 6, 2 * n.w + 12, 2 * n.h + 12, 9)
+      if (n.type === 'step' && !o.layered) {
+        // Force-map steps are diamonds: trace the same rounded box rotated onto
+        // the diamond, so the ring sits just outside the glyph's real outline.
+        const rr = 7 * entry * 0.72 + pad
+        ctx.save()
+        ctx.translate(n.x, n.y)
+        ctx.rotate(Math.PI / 4)
+        roundRect(ctx, -rr, -rr, 2 * rr, 2 * rr, 3)
+        ctx.restore()
+      } else if (
+        n.type === 'intent' ||
+        n.type === 'goal' ||
+        n.type === 'project' ||
+        (o.layered && n.type === 'step')
+      ) {
+        // Pill nodes: follow the box (radius 7) at a 2.5px offset.
+        roundRect(
+          ctx,
+          n.x - n.w - pad,
+          n.y - n.h - pad,
+          2 * n.w + 2 * pad,
+          2 * n.h + 2 * pad,
+          7 + pad,
+        )
       } else {
-        ctx.arc(n.x, n.y, Math.max(radiusOf(n), Math.hypot(n.w, n.h)) + 6, 0, TAU)
+        // Facts, ghosts and boundary leaves: a thin ring one pad outside the dot.
+        ctx.arc(n.x, n.y, radiusOf(n) + pad, 0, TAU)
       }
-      ctx.strokeStyle = isMatch ? 'rgba(255,77,77,0.9)' : 'rgba(255,255,255,0.65)'
-      ctx.lineWidth = 1.2 / cam.k
+      ctx.strokeStyle = isMatch ? 'rgba(255,77,77,0.7)' : 'rgba(255,255,255,0.42)'
+      ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
 

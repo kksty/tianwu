@@ -93,7 +93,7 @@ export function GraphToolbar({
       <Button
         size="icon-xs"
         variant={layout === 'layered' ? 'soft' : 'ghost'}
-        title="链路树：意图一步一列，它产出的事实挂在右侧；达成目标接到证据事实上（起点 → 第 1 跳 → …）"
+        title="链路树：起点 → 每一步意图 → 它产出的事实；目标达成后接到证据事实上（未达成的终点在左下终点卡）"
         aria-label="链路树布局"
         onClick={() => onLayout('layered')}
       >

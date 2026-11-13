@@ -15,8 +15,9 @@ import {
 export { graphPageKey, mergeGraphPages } from './graph-pages.ts'
 
 // The graph page is a fixed snapshot: expanded pages belong to one snapshot and
-// new content is admitted by an explicit refresh, so a live write cannot move
-// the cursor underneath it.
+// new content is admitted only by reloading a whole snapshot (manual refresh, or
+// the 实时 probe in GraphPanel), so a live write can never move the cursor
+// underneath it. Pages of two versions are never merged.
 //
 // The first screen is fetched in a bounded batch (structural order + graph
 // projection) and set once. Calling setData per page would rebuild the model —

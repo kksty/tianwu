@@ -144,6 +144,21 @@ test('goal evidence ownership takes the first fact carrying that evidence', () =
   assert.equal(fallback.edges.filter((e) => e.kind === 'brief').length, 1)
 })
 
+test('an unmet goal stays off the map, unconnected, until it is achieved', () => {
+  const graph = buildGraph([fact('f_out')], [intent()], [goal({ met: false })])
+  assert.equal(graph.byId.has('g:g_1'), false, 'an unmet goal must not be drawn as a node')
+  assert.equal(graph.edges.some((e) => e.target === 'g:g_1'), false, 'an unmet goal must not be connected')
+
+  // Once achieved it is a target node anchored to the fact carrying its evidence.
+  const done = buildGraph(
+    [fact('f_done', { evidence_ids: ['e_done'] })],
+    [],
+    [goal({ evidence_id: 'e_done' })],
+  )
+  assert.equal(done.byId.get('g:g_1')?.status, 'met')
+  assert.equal(done.edges.filter((e) => e.kind === 'goal').length, 1)
+})
+
 test('fact_meta merges onto the matching fact nodes only', () => {
   const graph = buildGraph(
     [fact('f_meta'), fact('f_plain')],

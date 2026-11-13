@@ -36,9 +36,9 @@ curl -s -H "Authorization: Bearer $TW_AGENT_TOKEN" "$TW_API/p/$TW_PROJECT/api/bo
 
 board 只有计数和 top-N。深度要靠自己查：
 
-> **空 board 先立目标与起点。** 项目简报已有内容、但 intents / facts / goals 都为 0 时，先按简报用
-> `POST /api/goals` 建 1–3 条可判真假的目标并划分起点，再派第一批方向；只有简报本身缺授权/目标、
-> 无法安全推断时才写一条笔记说明原因并收口。
+> **空 board 先立终点。** 项目简报已有内容、但 intents / facts / goals 都为 0 时，先按简报用
+> `POST /api/goals` 写 **1 条**可判真假的终点目标：简报本身就是起点（授权范围与已知状态），不要再建描述任务的目标，
+> 也不要建多条目标；然后派第一批方向。只有简报本身缺授权/目标、无法安全推断时才写一条笔记说明原因并收口。
 
 | 要看什么 | 调用 |
 |---|---|
@@ -84,7 +84,7 @@ GNU 参数（如 `--max-filesize`）。
 | 插话（同一个 run，不取消） | `POST /api/intents/in_x/say`，`{"text":"…","interrupt":false}` |
 | 停放 / 取消 / 重派 | `POST /api/intents/in_x/park\|cancel\|retry`，`{"reason":"…"}` / `{"reason":"…"}` / `{"note":"…"}` |
 | 续跑已结束/停放/失败的方向 | `POST /api/intents/in_x/continue`，`{"note":"…"}`：续同一个 harness 会话、不重发任务书；done/failed/parked 可用，没有原会话时改用 retry 重派新会话 |
-| 建目标（项目还没有目标时） | `POST /api/goals`，`{"statement":"能判真假的一句话","quantified_target":"可选口径"}`：按项目简报划分起点与终点，1–3 条即可；已有目标先读 board，不重复建 |
+| 建终点（项目还没有目标时） | `POST /api/goals`，`{"statement":"能判真假的一句终点","quantified_target":"可选口径"}`：只建 **1 条**，陈述要达到的最终状态而不是任务清单；起点就是项目简报，不需要目标。已有目标先读 board，不重复建；服务端会拒绝指挥官自动建第二个目标，新增目标由操作员显式追加 |
 | 目标完成 | `POST /api/goals/g_x/complete`，`{"from":["f_x"],"note":"说清目标口径怎么被证据满足"}`（`from` 里的**每条**事实都必须有自己的证据；是否达成由你对照目标 statement + quantified_target 判断，复核状态不是盖章门槛；代码不数条数，也不替你定清单） |
 | 提名打法 | `POST /api/playbooks/nominate`，`{"title":"…","when":"…","doc":"…","tags":["product:x"],"outcome":"success","from_fact_ids":["f_x"]}`（只写候选，必须有出处） |
 | 提名世界事实 | `POST /api/kb/candidates`，`{"entry":{"id":"稳定ID","title":"…","description":"何时查","detail":"事实","applicability":"适用条件","source":"来源说明","source_refs":["来源引用"],"tags":["主题"]},"reason":"为何跨项目成立"}`；只提名，不改已发布知识，不为提炼额外开轮 |

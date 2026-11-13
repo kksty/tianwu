@@ -144,14 +144,14 @@ func TestChangesFinishFixedBatchBeforeNewerWrites(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_, _ = s.AddFact(model.Fact{Title: fmt.Sprint(i)})
 	}
-	p, e := Changes(s, "", 2)
+	p, e := Changes(s, "", 2, 0)
 	if e != nil {
 		t.Fatal(e)
 	}
 	watermark := p.HighWatermark
 	_, _ = s.AddFact(model.Fact{Title: "later"})
 	for p.HasMore {
-		p, e = Changes(s, p.NextCursor, 2)
+		p, e = Changes(s, p.NextCursor, 2, 0)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -159,8 +159,55 @@ func TestChangesFinishFixedBatchBeforeNewerWrites(t *testing.T) {
 			t.Fatal("new writes moved the batch")
 		}
 	}
-	p, e = Changes(s, p.NextCursor, 2)
+	p, e = Changes(s, p.NextCursor, 2, 0)
 	if e != nil || len(p.Changes) != 1 {
 		t.Fatalf("later changes lost: %+v %v", p, e)
+	}
+}
+
+// The console keeps one graph snapshot and asks "did any ledger *content*
+// change after this seq?" using ?since=. Run/message bookkeeping advances the
+// durable seq without a versions row, so a raw watermark comparison would reload
+// the whole graph for writes that never touched a node.
+func TestChangesSinceSnapshotCountsOnlyContent(t *testing.T) {
+	s := ledger(t)
+	if _, e := s.AddFact(model.Fact{Kind: "note", Title: "first"}); e != nil {
+		t.Fatal(e)
+	}
+	p, e := Changes(s, "", 50, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	snapshot := p.HighWatermark
+	if _, e = s.AddRun(model.Run{IntentID: "in_x"}); e != nil {
+		t.Fatal(e)
+	}
+	if live := s.Watermark(); live.Seq <= snapshot.Seq {
+		t.Fatalf("run bookkeeping did not advance the durable seq: %+v", live)
+	}
+	p, e = Changes(s, "", 50, snapshot.Seq)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if p.Pending != 0 || len(p.Changes) != 0 {
+		t.Fatalf("bookkeeping-only write reported content changes: %+v", p)
+	}
+	if _, e = s.AddFact(model.Fact{Kind: "note", Title: "second"}); e != nil {
+		t.Fatal(e)
+	}
+	p, e = Changes(s, "", 50, snapshot.Seq)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if p.Pending != 1 || len(p.Changes) != 1 {
+		t.Fatalf("content write not reported since snapshot: %+v", p)
+	}
+	if p.HighWatermark.Seq <= snapshot.Seq {
+		t.Fatalf("high watermark did not advance: %+v", p.HighWatermark)
+	}
+	// A caller with a snapshot from ahead of this ledger (reset epoch) gets the
+	// current window, not an error: the epoch mismatch itself is the signal.
+	if _, e = Changes(s, "", 50, p.HighWatermark.Seq+50); e != nil {
+		t.Fatal(e)
 	}
 }

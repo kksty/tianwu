@@ -67,7 +67,7 @@ test('a ledger refresh preserves an edited brief while updating untouched fields
   assert.equal(merged.max_runs, '8', 'an untouched field follows the ledger')
 })
 
-test('creating from a brief sends an empty name and no goal', async () => {
+test('creating a project sends the explicit display name and no goal', async () => {
   const originalFetch = globalThis.fetch
   let sent: { url?: string; method?: string; body?: unknown } = {}
   globalThis.fetch = async (url, init) => {
@@ -77,26 +77,29 @@ test('creating from a brief sends an empty name and no goal', async () => {
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
     }
     return new Response(
-      JSON.stringify(project({ id: 'p_derived', name: '评估 example.com 的外网门户' })),
+      JSON.stringify(project({ id: 'p-a1b2c3d4', name: '评估 example.com 的外网门户' })),
       { status: 201 },
     )
   }
   try {
-    const created = await api.createProjectFromBrief(
+    const created = await api.createProject(
       '评估 example.com 的外网门户',
+      '评估 example.com 的外网门户',
+      '',
+      '',
       '只读优先',
     )
     assert.equal(sent.url, '/api/projects')
     assert.equal(sent.method, 'POST')
     assert.deepEqual(sent.body, {
-      name: '',
+      name: '评估 example.com 的外网门户',
       scope: '评估 example.com 的外网门户',
       goal: '',
       quantified_target: '',
       description: '只读优先',
     })
-    // The server derives the display name; the console shows what came back.
-    assert.equal(created.id, 'p_derived')
+    // The directory id is decoupled from the name; the console navigates by id.
+    assert.equal(created.id, 'p-a1b2c3d4')
     assert.equal(created.name, '评估 example.com 的外网门户')
   } finally {
     globalThis.fetch = originalFetch

@@ -33,7 +33,7 @@ func WorkingContext(s *store.Store, name string) (Context, error) {
 	}
 	checkpoint := s.ReadCheckpoint(name)
 	surveyHash := s.ContentHash()
-	changes, e := Changes(s, checkpoint.Changes, 20)
+	changes, e := Changes(s, checkpoint.Changes, 20, 0)
 	if e != nil {
 		return Context{}, e
 	}

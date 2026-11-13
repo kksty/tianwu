@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/model"
@@ -73,6 +74,40 @@ func TestProjectPauseSurvivesReopenUntilExplicitResume(t *testing.T) {
 
 // The whole point of the project layer: two engagements share a process but not
 // a ledger, so a fact declared in one is invisible in the other.
+// The directory is an opaque address, not a summary of the engagement: a name
+// containing a target host or URL must not leak into the path or console URL,
+// and two same-named projects must still get distinct directories.
+func TestProjectDirectoryIDIsOpaqueAndIndependentOfName(t *testing.T) {
+	m, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "61.133.196.36 与 http://www.nx.example/ 门户外网评估"
+	a, err := m.Create(name, "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Name != name {
+		t.Fatalf("display name = %q, want the operator's name verbatim", a.Name)
+	}
+	for _, leak := range []string{"61", "133", "nx", "example", "www"} {
+		if strings.Contains(a.ID, leak) {
+			t.Fatalf("directory id %q leaks the name (%q)", a.ID, leak)
+		}
+	}
+	b, err := m.Create("same name", "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := m.Create("same name", "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.ID == c.ID || b.Dir == c.Dir {
+		t.Fatalf("same-named projects share an address: %q / %q", b.ID, c.ID)
+	}
+}
+
 func TestCreateKeepsLedgersApart(t *testing.T) {
 	root := t.TempDir()
 	m, err := Open(root)
@@ -87,8 +122,11 @@ func TestCreateKeepsLedgersApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ID != "acme-web" {
-		t.Fatalf("id = %q, want slug of the name", a.ID)
+	if len(a.ID) != 10 || !strings.HasPrefix(a.ID, "p-") {
+		t.Fatalf("id = %q, want the short opaque p-xxxxxxxx directory id", a.ID)
+	}
+	if strings.Contains(a.ID, "acme") {
+		t.Fatalf("id = %q, want the name kept out of the directory address", a.ID)
 	}
 	if _, err := a.Store.AddFact(model.Fact{Title: "only in acme", Kind: "vuln"}); err != nil {
 		t.Fatal(err)
@@ -114,9 +152,9 @@ func TestCreateKeepsLedgersApart(t *testing.T) {
 	if len(m2.All()) != 2 {
 		t.Fatalf("reopened %d projects, want 2", len(m2.All()))
 	}
-	again := m2.Get("acme-web")
+	again := m2.Get(a.ID)
 	if again == nil {
-		t.Fatal("acme-web lost on reopen")
+		t.Fatalf("project %s lost on reopen", a.ID)
 	}
 	if again.Name != "Acme Web" || again.Scope != "acme.example" {
 		t.Fatalf("manifest not restored: %+v", again.Manifest)

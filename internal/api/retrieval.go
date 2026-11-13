@@ -31,7 +31,8 @@ func retrievalError(w http.ResponseWriter, e error) {
 }
 func (s *Server) changes(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	out, e := retrieval.Changes(s.Store, r.URL.Query().Get("cursor"), limit)
+	since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+	out, e := retrieval.Changes(s.Store, r.URL.Query().Get("cursor"), limit, since)
 	if e != nil {
 		retrievalError(w, e)
 		return

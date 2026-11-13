@@ -248,10 +248,11 @@ type ChangePage struct {
 	Pending       int               `json:"pending"`
 }
 
-func Changes(s *store.Store, token string, limit int) (ChangePage, error) {
+func Changes(s *store.Store, token string, limit int, since uint64) (ChangePage, error) {
 	live := s.Watermark()
 	c := cursor{Version: live, Query: "changes"}
-	if token != "" {
+	switch {
+	case token != "":
 		var e error
 		c, e = decode(token, "changes")
 		if e != nil {
@@ -262,6 +263,17 @@ func Changes(s *store.Store, token string, limit int) (ChangePage, error) {
 		}
 		if c.After >= c.Version.Seq {
 			c.Version = live
+		}
+	case since > 0:
+		// A content-only probe from a snapshot the caller already holds. Only
+		// ledger *content* rows live in the versions table: run/message
+		// bookkeeping advances the durable seq without a versions row, so using
+		// the raw watermark for "the graph changed" would report changes that
+		// never touched a node. A snapshot from another epoch or from ahead of
+		// this ledger has no usable seq; report the current window instead of
+		// inventing an empty one, and let the caller reload on the epoch change.
+		if since <= live.Seq {
+			c.After = since
 		}
 	}
 	rows, pending, err := s.ChangeWindow(c.Version, c.After, pageLimit(limit))

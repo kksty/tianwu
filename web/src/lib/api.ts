@@ -336,18 +336,6 @@ export const api = {
   fleet: () => get<FleetResponse>('/api/fleet'),
   createProject: (name: string, scope: string, goal = '', quantified_target = '', description = '') =>
     post<ProjectInfo>('/api/projects', { name, scope, goal, quantified_target, description }),
-  // Simple bootstrap: one paragraph is the project brief (scope), and the
-  // server derives the display name from its first line when name is empty. No
-  // goal or quantified target is required at creation — the commander writes
-  // goals into the ledger later (POST /api/goals).
-  createProjectFromBrief: (scope: string, description: string) =>
-    post<ProjectInfo>('/api/projects', {
-      name: '',
-      scope,
-      goal: '',
-      quantified_target: '',
-      description,
-    }),
   // Every field is optional server-side: omitted keeps the current value, and
   // max_runs: null restores "inherit the instance default". worker_profile /
   // strong_profile use "" to clear the project default (inherit the instance
@@ -543,7 +531,10 @@ export const api = {
   indexFacts: (cursor = '') => post<ReadPage & {indexed_this_page:number;remaining_to_visit:number}>(`${pbase()}/api/retrieval/index`,{cursor}),
   // Light journal probe: the page is a fixed snapshot, so the console compares
   // high_watermark with data.snapshot_version instead of merging live writes in.
-  changes: (params: {cursor?:string;limit?:number} = {}) => {
+  // `since` asks "did any ledger *content* change after this seq?" (run/message
+  // bookkeeping advances the durable seq without a versions row, so a raw
+  // watermark comparison would report changes that never touched the graph).
+  changes: (params: {cursor?:string;limit?:number;since?:number} = {}) => {
     const q = new URLSearchParams(); for (const [key,value] of Object.entries(params)) if(value !== undefined && value !== '') q.set(key,String(value))
     return get<ChangePage>(`${pbase()}/api/changes?${q}`)
   },

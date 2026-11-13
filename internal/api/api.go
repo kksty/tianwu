@@ -3473,6 +3473,19 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "statement 不能为空：目标要能判断真假")
 		return
 	}
+	// The commander maintains exactly one endpoint goal. Additional goals are an
+	// explicit operator decision (POST /api/project/append-goal, an operator-only
+	// route); letting an agent append a second goal is what turned the initial
+	// "起点 → 终点" briefing into a pile of task-like goals.
+	if _, agent := identityOf(r); agent {
+		if len(s.Store.Goals()) > 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "项目已有终点目标：指挥官只维护这一个终点；需要新增目标时由操作员显式追加。",
+				"code":  "goal_exists",
+			})
+			return
+		}
+	}
 	creatorRun := ""
 	if actorOf(r) == collab.CommanderID {
 		if run, live := s.liveCommanderRun(); live {

@@ -400,10 +400,10 @@ export function buildGraph(
 
   const maxFactDepth = factDepth.size ? Math.max(...factDepth.values()) : 0
   const goalDepth = facts.length ? maxFactDepth + 1 : 1
-  // Only an achieved goal is a target on the map: it is where the work actually
-  // landed. An open goal has no fact to anchor to; drawing it would invent a
-  // node with no provenance, so the console shows those as a compact card
-  // instead (see GraphView's 未达成目标 panel).
+  // Only a completed goal is a graph node: it is anchored to the fact that
+  // carries its evidence. An unmet goal has no completed work to stand on, so it
+  // is shown in the graph page's 终点 card instead of being drawn as a loose or
+  // guessed node.
   for (const g of goals) {
     if (!g.met) continue
     addNode({
@@ -426,17 +426,31 @@ export function buildGraph(
   }
 
   const boundaryState = new Map(boundaries.map(b => [b.id,b.state]))
-  const pendingRefs = new Set(boundaries.map(b => b.id))
+  // A boundary leaf is a reference whose entity the snapshot does not carry. The
+  // ledger's boundary stream can also name ids that ARE in the snapshot (for
+  // example an open goal, which is deliberately not a map node). Drawing those
+  // as "未载入引用" would invent an orphan ghost for a row the map already has,
+  // so loaded rows are never turned into boundary leaves.
+  const loadedRefIDs = new Set<string>([
+    ...facts.map(f => `fact:${f.id}`),
+    ...intents.map(it => `intent:${it.id}`),
+    ...goals.map(g => `goal:${g.id}`),
+  ])
+  const pendingRefs = new Set<string>()
+  for (const b of boundaries) if (!loadedRefIDs.has(b.id)) pendingRefs.add(b.id)
   for(const edge of sourceEdges){pendingRefs.add(edge.source);pendingRefs.add(edge.target)}
   for (const it of intents) for(const id of it.from_fact_ids ?? []) if(!factIDs.has(id)) pendingRefs.add(`fact:${id}`)
   for (const f of facts) if(f.intent_id && !intentByID.has(f.intent_id)) pendingRefs.add(`intent:${f.intent_id}`)
   const nodeID = (id:string) => id.startsWith('fact:') ? `f:${id.slice(5)}` : id.startsWith('intent:') ? stepID(id.slice(7)) : id.startsWith('goal:') ? `g:${id.slice(5)}` : id
-  for (const id of pendingRefs) if(!byId.has(nodeID(id))) {
-    const state = boundaryState.get(id)
-    // "The ledger cannot show this row here" is a different fact from "the
-    // ledger says this id is gone". Only the first is an expandable leaf.
-    const why = state === 'missing' ? '引用缺失' : state === 'rejected' ? '已否定' : state === 'not_loaded' ? '未载入' : '展开'
-    addNode({id:nodeID(id),type:'boundary',label:`${id} · ${why}`,boundary:id,boundaryState:state,x:0,y:0,vx:0,vy:0,degree:0,w:9,h:9,depth:1})
+  for (const id of pendingRefs) {
+    if (loadedRefIDs.has(id)) continue
+    if(!byId.has(nodeID(id))) {
+      const state = boundaryState.get(id)
+      // "The ledger cannot show this row here" is a different fact from "the
+      // ledger says this id is gone". Only the first is an expandable leaf.
+      const why = state === 'missing' ? '引用缺失' : state === 'rejected' ? '已否定' : state === 'not_loaded' ? '未载入' : '展开'
+      addNode({id:nodeID(id),type:'boundary',label:`${id} · ${why}`,boundary:id,boundaryState:state,x:0,y:0,vx:0,vy:0,degree:0,w:9,h:9,depth:1})
+    }
   }
 
   // ---- edges ----
@@ -557,15 +571,17 @@ export function buildGraph(
       if (!evidenceOwner.has(ev)) evidenceOwner.set(ev, f)
     }
   }
-  for (const g of goals) {
-    if (!g.evidence_id) continue
-    const owner = evidenceOwner.get(g.evidence_id)
-    if (owner) link(`f:${owner.id}`, `g:${g.id}`, 'goal')
-  }
+  // An unmet goal is deliberately not linked: the editor's 终点 card explains the
+  // target, and a line would pretend the goal already stands on current work.
   for (const g of goals) {
     if (!g.met) continue
-    if (edges.some((e) => e.kind === 'goal' && e.target === `g:${g.id}`)) continue
-    link(projectID, `g:${g.id}`, 'brief')
+    if (g.evidence_id) {
+      const owner = evidenceOwner.get(g.evidence_id)
+      if (owner) link(`f:${owner.id}`, `g:${g.id}`, 'goal')
+    }
+    if (!edges.some((e) => e.kind === 'goal' && e.target === `g:${g.id}`)) {
+      link(projectID, `g:${g.id}`, 'brief')
+    }
   }
 
   // Force-mode initial placement; the layered layout overrides these positions.

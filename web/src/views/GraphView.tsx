@@ -314,11 +314,9 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const view = route.view
   const tab = route.tab
 
-  // The ledger only feeds the map. While another panel owns the screen its
-  // polls would pull ~880 KB every 6 s and re-render this shell for a picture
-  // nobody is looking at, so leaving the map pauses them; coming back
-  // revalidates immediately (usePoll's activation tick) instead of waiting a
-  // whole period.
+  // The snapshot itself lives in the shell so leaving the map does not refetch
+  // it; the map's own polls (runs / changes, and the 实时 reload) live in
+  // GraphPanel and stop when the panel unmounts.
   const graphActive = view === 'graph'
   const humanRequests = usePoll(api.operatorRequests, 6000)
   const humanPending = (humanRequests.data ?? []).filter((item) => !item.request.completed_at).length
@@ -594,22 +592,28 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const finished = pauseReason.includes('目标已完成')
 
   const stats = view === 'overview' ? null : (
-    <div className="hidden items-center gap-3 font-mono text-[11px] text-muted-foreground xl:flex">
+    <div className="hidden h-7 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 font-mono text-[11px] text-muted-foreground xl:flex">
       <span>
-        意图 <b className="text-foreground">{fmtInt(board?.intents.total)}</b>
+        意图 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.intents.total)}</b>
       </span>
+      <span className="h-3 w-px bg-border/70" aria-hidden />
       <span>
-        事实 <b className="text-foreground">{fmtInt(board?.facts.total)}</b>
+        事实 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.facts.total)}</b>
       </span>
+      <span className="h-3 w-px bg-border/70" aria-hidden />
       <span>
-        证据 <b className="text-foreground">{fmtInt(board?.evidence)}</b>
+        证据 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.evidence)}</b>
       </span>
-      <span className={running > 0 ? 'text-primary' : ''}>在跑 {running}</span>
+      <span className="h-3 w-px bg-border/70" aria-hidden />
+      <span className={running > 0 ? 'text-primary' : ''}>
+        在跑 <b className="text-[11px] font-semibold">{running}</b>
+      </span>
     </div>
   )
 
   // The project-wide controls ride in every page banner (ProjectChromeContext),
-  // so the kill switch is never buried in one view.
+  // so the kill switch is never buried in one view. One button size and one row:
+  // state-changing controls first, the primary "新建意图" last on the right.
   const controls = (
     <>
       {finished && (
@@ -619,9 +623,9 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       )}
       {board && (
         <Button
-          size="xs"
+          size="sm"
           variant={paused ? 'soft' : 'outline'}
-          className="shrink-0"
+          className="h-7 px-2.5 text-[12px]"
           onClick={toggleProject}
           disabled={pausing}
           title={
@@ -632,7 +636,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
               : '暂停项目：停止指挥官，并取消所有正在跑的 run'
           }
         >
-          {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+          {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
           <span className="whitespace-nowrap">{paused ? '继续项目' : '暂停项目'}</span>
         </Button>
       )}
@@ -641,24 +645,20 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           and already has goals (a fresh project uses 新建目标 instead). */}
       {paused && (board?.goals.total ?? 0) > 0 && (
         <Button
-          size="xs"
-          variant="soft"
-          className="shrink-0"
+          size="sm"
+          variant="outline"
+          className="h-7 px-2.5 text-[12px]"
           onClick={() => setAppendGoalOpen(true)}
           title="追加一个新的独立目标，并按这次显式操作恢复派发；旧目标的完成收据保持不变。普通消息不会自动恢复暂停的项目。"
         >
-          <Target className="h-3 w-3" />
+          <Target className="h-3.5 w-3.5" />
           <span className="whitespace-nowrap">追加目标并继续</span>
         </Button>
       )}
-      <Button size="xs" className="shrink-0" onClick={() => setCreating(true)}>
-        <Plus className="h-3 w-3" />
-        <span className="whitespace-nowrap">新建意图</span>
-      </Button>
       <Button
-        size="xs"
+        size="sm"
         variant="soft"
-        className="shrink-0"
+        className="h-7 px-2.5 text-[12px]"
         onClick={decideRound}
         disabled={deciding || !board?.decider.enabled || paused}
         title={
@@ -669,8 +669,12 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
               : '让指挥官立刻跑一轮'
         }
       >
-        <Play className="h-3 w-3" />
+        <Play className="h-3.5 w-3.5" />
         <span className="whitespace-nowrap">跑一轮</span>
+      </Button>
+      <Button size="sm" className="h-7 px-2.5 text-[12px]" onClick={() => setCreating(true)}>
+        <Plus className="h-3.5 w-3.5" />
+        <span className="whitespace-nowrap">新建意图</span>
       </Button>
     </>
   )

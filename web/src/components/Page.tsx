@@ -21,6 +21,9 @@ export const ProjectChromeContext = createContext<ProjectChrome | null>(null)
 interface PageProps {
   title: string
   subtitle?: ReactNode
+  /** Status/meta chips: snapshot, live toggle, token totals. Rendered under the
+   *  primary actions so the header reads "what can I do" then "where are we". */
+  meta?: ReactNode
   actions?: ReactNode
   children: ReactNode
   /** Views that manage their own scrolling (split panes) pass false. */
@@ -29,26 +32,37 @@ interface PageProps {
 }
 
 /** The frame every view sits in: title row, then a body that owns the scroll. */
-export function Page({ title, subtitle, actions, children, scroll = true, className }: PageProps) {
+export function Page({ title, subtitle, meta, actions, children, scroll = true, className }: PageProps) {
   const chrome = useContext(ProjectChromeContext)
   // The reading position survives leaving and re-entering a view (docs/34 §2).
   // A page that owns its own panes (`scroll={false}`) opts out by not attaching
   // the ref — the hook is still mounted, so hooks never become conditional.
   const scrollRef = useScrollMemory<HTMLDivElement>()
+  const hasTopRow = Boolean(chrome?.controls || actions)
+  const hasMetaRow = Boolean(chrome?.stats || meta)
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="tw-page-header flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/80 px-4 py-4 sm:px-6 lg:px-7">
-        <div className="min-w-0">
+      <div className="tw-page-header flex shrink-0 flex-col gap-3 border-b border-border/80 px-4 py-4 sm:px-6 lg:px-7 xl:flex-row xl:items-center xl:gap-x-6">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-1 break-words text-[10px] font-medium tracking-[0.12em] text-muted-foreground [overflow-wrap:anywhere]">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}<span className="mx-2 opacity-40">/</span>{title}</div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
           {subtitle && (
-            <div className="mt-1 break-words text-[12px] leading-relaxed text-muted-foreground">{subtitle}</div>
+            <div className="mt-1 break-words text-[12px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</div>
           )}
         </div>
-        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
-          {chrome?.stats}
-          {chrome?.controls}
-          {actions}
+        <div className="flex w-full min-w-0 flex-col items-start gap-1.5 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
+          {hasTopRow && (
+            <div className="flex w-full max-w-full flex-wrap items-center gap-1.5 xl:w-auto xl:justify-end">
+              {chrome?.controls}
+              {actions}
+            </div>
+          )}
+          {hasMetaRow && (
+            <div className="flex w-full max-w-full flex-wrap items-center gap-1.5 xl:w-auto xl:justify-end">
+              {chrome?.stats}
+              {meta}
+            </div>
+          )}
         </div>
       </div>
       {chrome?.error && <div className="shrink-0 px-4 pt-3 sm:px-6" role="alert"><Callout tone="destructive">{chrome.error}</Callout></div>}
