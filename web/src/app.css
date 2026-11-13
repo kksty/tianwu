@@ -13,86 +13,146 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Tokens. Values are complete colours (not HSL triplets) because Tailwind v4
- * emits `var(--x)` into the utility, so the variable has to be a valid colour
- * on its own. The palette is the console's own: near-black surfaces, one red
- * accent for "this is an offensive action", green/amber/blue for verdicts.
+ * Tokens.
+ *
+ * The console is a security operations surface: the dark theme is the product
+ * face, the light theme is a print-daylight fallback. Values are complete
+ * colours (not HSL triplets) because Tailwind v4 emits `var(--x)` into the
+ * utility, so the variable has to be a valid colour on its own.
+ *
+ * Colour budget (60-30-10):
+ *   60%  canvas            --background  (near-black, blue-cold)
+ *   30%  containers/surfaces --card / --surface-1..3 + hairlines
+ *   10%  brand accent      --primary (vermillion), CTA + active marker only
+ * Semantic colours (success/warning/caution/info/ai) are verdicts, never
+ * decoration; they only appear as small tints + 1px borders.
+ *
+ * Text has four ink levels instead of one grey: --ink-1 (foreground),
+ * --ink-2 (secondary copy), --ink-3 (captions/eyebrows), --ink-disabled.
+ * Hierarchy comes from ink + weight + size, never from a single muted grey.
  */
 :root {
   --radius: 0.5rem;
 
-  --background: #f6f7f9;
-  --foreground: #14151a;
-  --card: #ffffff;
-  --card-foreground: #14151a;
-  --popover: #ffffff;
-  --popover-foreground: #14151a;
-  --primary: #d92d2d;
-  --primary-foreground: #ffffff;
-  --secondary: #eceef2;
-  --secondary-foreground: #14151a;
-  --muted: #eef0f4;
-  --muted-foreground: #5d626e;
-  --accent: #e9ebf0;
-  --accent-foreground: #14151a;
-  --destructive: #d92d2d;
-  --destructive-foreground: #ffffff;
-  --border: #dfe2e8;
-  --input: #d6dae1;
-  --ring: #d92d2d;
+  --background: #f4f5f7;
+  --foreground: #14161b;
 
-  --success: #17945c;
+  --surface-1: #eef0f4; /* rail / inset strip */
+  --surface-2: #f7f8fa; /* inner block, hover wash */
+  --surface-3: #e8ebf0; /* selected / pressed wash */
+
+  --card: #ffffff;
+  --card-foreground: #14161b;
+  --popover: #ffffff;
+  --popover-foreground: #14161b;
+
+  --primary: #c92a2a;
+  --primary-foreground: #ffffff;
+  /* Solid fill for CTAs. Same red, but the pair (fill + white label) is held at
+     AA contrast; --primary itself stays the lighter "ink on dark" accent. */
+  --primary-solid: #c92a2a;
+  --primary-solid-hover: #b32525;
+
+  --secondary: #eceef2;
+  --secondary-foreground: #1a1d24;
+  --muted: #eef0f4;
+  --muted-foreground: #5a6270;
+  --accent: #e6e9ef;
+  --accent-foreground: #14161b;
+
+  --destructive: #c92a2a;
+  --destructive-foreground: #ffffff;
+
+  --border: #dfe2e8;
+  --hairline: #e9ebf0;
+  --input: #d7dbe2;
+  --ring: #c92a2a;
+
+  /* Ink levels: the only four text colours the UI may use. */
+  --ink-1: #14161b;
+  --ink-2: #3f4653;
+  --ink-3: #6a7280;
+
+  --success: #147a41;
   --success-foreground: #ffffff;
-  --warning: #b47c06;
+  --warning: #96660a;
   --warning-foreground: #ffffff;
-  --caution: #c2600f;
+  --caution: #b3520c;
   --caution-foreground: #ffffff;
-  --info: #2563c9;
+  --info: #1f5fbf;
   --info-foreground: #ffffff;
-  --ai: #7c4dd4;
+  --ai: #6b3fc0;
 }
 
 .dark {
-  --background: #0c0e12;
-  --foreground: #e9e9ee;
-  --card: #13161c;
-  --card-foreground: #e9e9ee;
-  --popover: #191d25;
-  --popover-foreground: #e9e9ee;
-  --primary: #f87171;
-  --primary-foreground: #170303;
-  --secondary: #1c212b;
-  --secondary-foreground: #e9e9ee;
-  --muted: #191e27;
-  --muted-foreground: #969eaf;
-  --accent: #222937;
-  --accent-foreground: #f2f2f6;
-  --destructive: #ff4d4d;
-  --destructive-foreground: #170303;
-  --border: #2a303b;
-  --input: #363f4e;
-  --ring: #f87171;
+  --background: #0a0c10;
+  --foreground: #e7eaf0;
 
-  --success: #39d98a;
-  --success-foreground: #04140c;
-  --warning: #f2c94c;
-  --warning-foreground: #161100;
-  --caution: #ff9f43;
-  --caution-foreground: #180a00;
-  --info: #6aa9ff;
-  --info-foreground: #040d1a;
+  /* Three deliberate elevation steps. Cards are separated by tint + hairline,
+     not by stacked drop shadows. */
+  --surface-1: #0d1015; /* rail, chrome strips            */
+  --surface-2: #161b23; /* inset blocks, row hover         */
+  --surface-3: #1d232e; /* pressed / selected wash         */
+
+  --card: #11151c;
+  --card-foreground: #e7eaf0;
+  --popover: #171c25;
+  --popover-foreground: #eceff4;
+
+  --primary: #f2554d;
+  --primary-foreground: #fff8f7;
+  /* The accent is used two ways, and they need different luminances:
+     --primary        accent ink / 2px marker / focus ring on the dark canvas
+     --primary-solid  CTA fill, dark enough for a white label (AA 4.9:1) */
+  --primary-solid: #c93430;
+  --primary-solid-hover: #d63a35;
+
+  --secondary: #1a202a;
+  --secondary-foreground: #d9dee7;
+  --muted: #171c24;
+  --muted-foreground: #8b94a3;
+  --accent: #1e2531;
+  --accent-foreground: #eef1f6;
+
+  --destructive: #ff5c5c;
+  --destructive-foreground: #200404;
+
+  --border: #242c38;
+  --hairline: #1b2129;
+  --input: #2e3846;
+  --ring: #f2554d;
+
+  --ink-1: #e7eaf0;
+  --ink-2: #a9b2c1;
+  --ink-3: #788294;
+
+  --success: #3dd68c;
+  --success-foreground: #04170d;
+  --warning: #e5b53c;
+  --warning-foreground: #180f00;
+  --caution: #f0883e;
+  --caution-foreground: #1a0b00;
+  --info: #6cb6ff;
+  --info-foreground: #03101d;
   --ai: #b388ff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-solid: var(--primary-solid);
+  --color-primary-solid-hover: var(--primary-solid-hover);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -102,8 +162,13 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-hairline: var(--hairline);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --color-ink: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
 
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -115,36 +180,46 @@
   --color-info-foreground: var(--info-foreground);
   --color-ai: var(--ai);
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
 
-  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system,
-    sans-serif;
+  /*
+   * Type roles. One ramp for the whole console: eyebrow → page title.
+   * Body copy never drops below 12px; 11px is reserved for mono meta (IDs,
+   * counters) and badges, and nothing renders smaller than 11px at all.
+   */
+  --text-eyebrow: 11px;
+  --text-eyebrow--line-height: 16px;
+  --text-eyebrow--letter-spacing: 0.08em;
+  --text-caption: 12px;
+  --text-caption--line-height: 18px;
+  --text-ui: 13px;
+  --text-ui--line-height: 20px;
+  --text-body: 14px;
+  --text-body--line-height: 22px;
+  --text-body-lg: 15px;
+  --text-body-lg--line-height: 24px;
+  --text-h4: 15px;
+  --text-h4--line-height: 22px;
+  --text-h3: 17px;
+  --text-h3--line-height: 25px;
+  --text-h2: 20px;
+  --text-h2--line-height: 28px;
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-stat: 26px;
+  --text-stat--line-height: 1.1;
+
+  --font-sans: "Inter", "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui,
+    -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
 
-  --text-caption: 13px;
-  --text-caption--line-height: 18px;
-  --text-caption--letter-spacing: 0.01em;
-  --text-ui: 14px;
-  --text-ui--line-height: 20px;
-  --text-body: 15px;
-  --text-body--line-height: 24px;
-  --text-h4: 16px;
-  --text-h4--line-height: 24px;
-  --text-h3: 18px;
-  --text-h3--line-height: 28px;
-  --text-h2: 22px;
-  --text-h2--line-height: 30px;
-  --text-h1: 26px;
-  --text-h1--line-height: 34px;
-  --text-stat: 22px;
-  --text-stat--line-height: 1;
-
-  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.28), 0 1px 2px rgb(0 0 0 / 0.18);
-  --shadow-lifted: 0 4px 16px rgb(0 0 0 / 0.32), 0 1px 3px rgb(0 0 0 / 0.22);
-  --shadow-elevated: 0 12px 40px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.3);
+  /* Dark chrome needs deep, low-spread shadows; they read as depth, not glow. */
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.32);
+  --shadow-lifted: 0 8px 24px -8px rgb(0 0 0 / 0.55), 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-elevated: 0 20px 48px -12px rgb(0 0 0 / 0.65), 0 2px 6px rgb(0 0 0 / 0.35);
 }
 
 @layer base {
@@ -159,20 +234,40 @@
     height: 100%;
   }
 
+  html {
+    color-scheme: dark;
+  }
+
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
   body {
     margin: 0;
     background-color: var(--background);
-    color: var(--foreground);
+    color: var(--ink-1);
     font-family: var(--font-sans);
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     overflow: hidden;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--primary) 28%, transparent);
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+  }
+
+  ::placeholder {
+    color: var(--ink-3);
+    opacity: 1;
+  }
+
+  /* Keyboard users get one visible ring everywhere; mice do not. */
+  :where(a, button, [role='button'], [role='tab'], summary):focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+    outline-offset: 2px;
   }
 
   button {
@@ -181,54 +276,76 @@
   }
 
   *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
   *::-webkit-scrollbar-track {
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+    background: color-mix(in oklab, var(--ink-3) 30%, transparent);
+    border: 3px solid transparent;
+    background-clip: padding-box;
     border-radius: 999px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+    background: color-mix(in oklab, var(--ink-3) 55%, transparent);
+    border: 3px solid transparent;
+    background-clip: padding-box;
   }
 }
 
 @layer utilities {
   button:not(:disabled) {
+    /* Native buttons and the design-system Button base carry no cursor class,
+       and Tailwind preflight does not restore one: without this, every click
+       target reads as plain text. */
     cursor: pointer;
     transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
       box-shadow 120ms ease, opacity 120ms ease, scale 100ms ease-out;
   }
 
+  /* A press is a 1px settle, not a bounce. */
   button:not(:disabled):active {
-    scale: 0.97;
+    scale: 0.985;
   }
 
+  /* ---------------------------------------------------------------- chrome */
+
   .tw-rail {
-    background: linear-gradient(165deg, color-mix(in oklab, var(--card) 96%, var(--primary) 4%), var(--background) 65%);
+    background: var(--surface-1);
   }
+
   .tw-page-header {
-    background: linear-gradient(110deg, var(--card), color-mix(in oklab, var(--background) 90%, var(--card)));
+    background: color-mix(in oklab, var(--card) 72%, var(--background));
   }
+
+  /* The one card recipe: hairline border on a card tint, no stacked shadows. */
   .tw-panel {
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-soft);
   }
+
+  /* A recessed block inside a card (metric strip, log well, list table). */
+  .tw-inset {
+    background: color-mix(in oklab, var(--surface-2) 72%, transparent);
+    border: 1px solid var(--hairline);
+  }
+
   /* The rail's faint grid: reads as graph paper under the nav, not as texture. */
   .tw-grid {
     background-image: linear-gradient(
         to right,
-        color-mix(in oklab, var(--border) 45%, transparent) 1px,
+        color-mix(in oklab, var(--border) 40%, transparent) 1px,
         transparent 1px
       ),
       linear-gradient(
         to bottom,
-        color-mix(in oklab, var(--border) 45%, transparent) 1px,
+        color-mix(in oklab, var(--border) 40%, transparent) 1px,
         transparent 1px
       );
-    background-size: 22px 22px;
+    background-size: 24px 24px;
   }
 
   .tw-mono {
@@ -236,13 +353,70 @@
     font-variant-ligatures: none;
   }
 
-  /*
-   * Brand lockup (Brand.tsx). Pure typographic wordmark: a warm cream→coral
+  /* Numerals in metrics must align column to column. */
+  .tw-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* ------------------------------------------------------------ typography */
+
+  /* Small all-caps-ish label above a title or a metric. CJK keeps its case. */
+  .tw-eyebrow {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+  }
+
+  /* Section heading inside a card / panel header. */
+  .tw-section-title {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--ink-1);
+  }
+
+  /* Secondary explanatory line under a title. */
+  .tw-subtitle {
+    font-size: 12.5px;
+    line-height: 19px;
+    color: var(--ink-2);
+    overflow-wrap: anywhere;
+  }
+
+  /* Metric value: mono, tabular, tight. */
+  .tw-stat {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 26px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink-1);
+  }
+
+  /* ------------------------------------------------------------ behaviours */
+
+  /* Long evidence names and tool output must never widen the layout. */
+  .tw-break {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .tw-hover-row {
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .tw-hover-row:hover {
+    background: color-mix(in oklab, var(--surface-2) 80%, transparent);
+  }
+
+  /* Brand lockup (Brand.tsx). Pure typographic wordmark: a warm cream→coral
    * gradient over a 楷体/衬线 stack with a hair of engraving shadow, and a tiny
    * vermillion seal dot. Keeping it in CSS (not baked into an image) means the
    * treatment is identical in both shells and on the login page, and the name
-   * stays selectable/readable for assistive tech.
-   */
+   * stays selectable/readable for assistive tech. */
   .tw-brand-cn {
     font-family: "Kaiti SC", "STKaiti", "KaiTi", "Noto Serif SC", "Songti SC", serif;
     font-size: 22px;
@@ -263,7 +437,7 @@
     line-height: 1;
     letter-spacing: 0.36em;
     text-transform: uppercase;
-    color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+    color: var(--ink-3);
   }
 
   /* The one graphic accent of the wordmark: a stamped vermillion square. */
@@ -276,11 +450,7 @@
     box-shadow: 0 0 8px color-mix(in oklab, var(--primary) 70%, transparent);
   }
 
-  /* Long evidence names and tool output must never widen the layout. */
-  .tw-break {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
+  /* ---------------------------------------------------------------- motion */
 
   @keyframes tw-rise {
     from {
@@ -294,7 +464,7 @@
   }
 
   .tw-rise {
-    animation: tw-rise 320ms ease-out both;
+    animation: tw-rise 240ms ease-out both;
   }
 
   @keyframes tw-progress {
@@ -307,7 +477,7 @@
   }
 
   @keyframes tw-operation-enter {
-    from { opacity: 0; scale: 0.96; }
+    from { opacity: 0; scale: 0.97; }
     to { opacity: 1; scale: 1; }
   }
 

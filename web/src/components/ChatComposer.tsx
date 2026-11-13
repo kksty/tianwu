@@ -17,6 +17,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Spinner,
   Textarea,
   ToggleGroup,
   ToggleGroupItem,
@@ -197,46 +198,46 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
   }
 
   return (
-    <div className="shrink-0 border-t border-border/60 p-2" data-directive-composer>
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-medium text-foreground">下发</span>
-        <span className="text-[10px] text-muted-foreground">一次性提示 / 持续指令 / 换向</span>
+    <div className="shrink-0 space-y-2 border-t border-hairline p-3" data-directive-composer>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[12px] font-semibold text-ink">下发</span>
+        <span className="text-[11px] text-ink-3">一次性提示 / 持续指令 / 换向</span>
       </div>
 
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-        <span className="w-8 shrink-0 text-[11px] text-muted-foreground">时效</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-8 shrink-0 text-[11px] text-ink-3">时效</span>
         <ToggleGroup
           value={persistent ? 'persist' : 'once'}
           onValueChange={(value) => choosePersistent(value === 'persist')}
           ariaLabel="下发时效"
         >
-          <ToggleGroupItem value="once" disabled={busy} className="px-2 py-0.5 text-[11px]">
+          <ToggleGroupItem value="once" disabled={busy} className="h-8 px-2 text-[11px]">
             一次性（默认）
           </ToggleGroupItem>
-          <ToggleGroupItem value="persist" disabled={busy} className="px-2 py-0.5 text-[11px]">
+          <ToggleGroupItem value="persist" disabled={busy} className="h-8 px-2 text-[11px]">
             持续到撤销
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
 
-      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-        <span className="w-8 shrink-0 text-[11px] text-muted-foreground">对象</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-8 shrink-0 text-[11px] text-ink-3">对象</span>
         <ToggleGroup value={target} onValueChange={(value) => chooseTarget(value as DirectiveTarget)} ariaLabel="下发对象">
           {persistent ? (
             <>
-              <ToggleGroupItem value="project" disabled={busy} className="px-2 py-0.5 text-[11px]">
+              <ToggleGroupItem value="project" disabled={busy} className="h-8 px-2 text-[11px]">
                 整个项目
               </ToggleGroupItem>
-              <ToggleGroupItem value="intent" disabled={busy} className="px-2 py-0.5 text-[11px]">
+              <ToggleGroupItem value="intent" disabled={busy} className="h-8 px-2 text-[11px]">
                 某个方向
               </ToggleGroupItem>
             </>
           ) : (
             <>
-              <ToggleGroupItem value="commander" disabled={busy} className="px-2 py-0.5 text-[11px]">
+              <ToggleGroupItem value="commander" disabled={busy} className="h-8 px-2 text-[11px]">
                 指挥官
               </ToggleGroupItem>
-              <ToggleGroupItem value="intent" disabled={busy} className="px-2 py-0.5 text-[11px]">
+              <ToggleGroupItem value="intent" disabled={busy} className="h-8 px-2 text-[11px]">
                 某个方向
               </ToggleGroupItem>
             </>
@@ -245,7 +246,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
       </div>
 
       {target === 'intent' && (
-        <div className="mb-1.5 space-y-1">
+        <div className="space-y-1.5">
           <Select
             value={intentID || undefined}
             onValueChange={(value) => {
@@ -254,14 +255,14 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
             }}
             disabled={busy || directions.length === 0}
           >
-            <SelectTrigger className="h-8 text-[11px]" aria-label="选择下发方向">
+            <SelectTrigger className="h-8 text-[12px]" aria-label="选择下发方向">
               <SelectValue placeholder={directions.length > 0 ? '选择方向' : '没有可选方向'} />
             </SelectTrigger>
             <SelectContent className="max-w-[calc(100vw-2rem)]">
               {directions.map((intent) => (
-                <SelectItem key={intent.id} value={intent.id} className="text-[11px]">
+                <SelectItem key={intent.id} value={intent.id} className="text-[12px]">
                   <span className="truncate">{intent.title}</span>
-                  <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+                  <span className="ml-1.5 font-mono text-[11px] text-ink-3">
                     {intent.id.slice(0, 12)}
                   </span>
                 </SelectItem>
@@ -269,13 +270,13 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
             </SelectContent>
           </Select>
           {selected && (
-            <div className="flex flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-ink-3">
               <span className="font-mono">{selected.id}</span>
               <span>{statusLabel(selected.status)}</span>
             </div>
           )}
           {steerAllowed && (
-            <label className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <label className="flex items-start gap-2 text-[11px] text-ink-2">
               <Checkbox
                 checked={steerActive}
                 onCheckedChange={(checked) => setSteer(Boolean(checked))}
@@ -285,7 +286,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
               />
               <span>
                 立即停并换向（steer）
-                <span className="block text-[10px] leading-4">
+                <span className="block text-[11px] leading-4 text-ink-3">
                   停掉当前 run，用同一轨迹继续；不勾选则作为一次性提示排到下一轮。
                 </span>
               </span>
@@ -318,24 +319,31 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
                 ? '写清换向后的下一步：例如停掉字典铺路，收窄到登录口做单变量差分。'
                 : '例如：这个方向先停在只读验证；portal.example 主站也在范围内。'
         }
-        className="min-h-[52px] text-[12px]"
+        className="min-h-[56px] text-[12px] leading-relaxed placeholder:text-ink-2"
         aria-label="下发内容"
       />
-      <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-        <span>{text.trim().length}/4000 · Enter 发送，Shift+Enter 换行</span>
+      <div className="flex items-center gap-2">
+        <span className="tw-nums font-mono text-[11px] text-ink-3">
+          {text.trim().length}/4000 · Enter 发送，Shift+Enter 换行
+        </span>
         <Button
-          size="xs"
+          size="sm"
           className="ml-auto shrink-0"
           disabled={busy || !text.trim() || (target === 'intent' && !intentID)}
           onClick={() => void send()}
         >
+          {busy && <Spinner size="sm" className="text-primary-foreground" />}
           {busy ? '处理中…' : persistent ? '创建指令' : steerActive ? '停并换向' : '发送提示'}
         </Button>
       </div>
-      <div className="mt-1 text-[10px] leading-4 text-muted-foreground">{hint()}</div>
-      {error && <div className="mt-1 text-[11px] leading-4 text-destructive">{error}</div>}
+      <div className="text-[11px] leading-4 text-ink-3">{hint()}</div>
+      {error && (
+        <div role="alert" className="text-[11px] leading-4 text-destructive">
+          {error}
+        </div>
+      )}
       {receipt && (
-        <p data-directive-receipt className="mt-1 text-[11px] leading-4 text-muted-foreground">
+        <p data-directive-receipt className="text-[12px] leading-5 text-ink-2">
           {receipt}
         </p>
       )}

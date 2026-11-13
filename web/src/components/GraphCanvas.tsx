@@ -9,7 +9,7 @@ import {
   type LayoutMode,
   type MoveCoalescer,
 } from '@/graph/sim'
-import { halfExtentX, paint, type Camera, type FocusTemperatures } from '@/graph/render'
+import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera, type FocusTemperatures } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
 import { GraphIndex, edgeHitTest, nodeHitTest } from '@/graph/hit'
 import {
@@ -153,7 +153,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   }>({ sim: null, byId: new Map(), focusID: undefined, focus: null })
   // Pill widths are a constant of (font, text); a poll keeps almost every label,
   // so re-shaping all of them on every rebuild was wasted main-thread time.
-  const measureRef = useRef(new Map<string, { w: number; h: number }>())
+  const measureRef = useRef(new Map<string, { w: number; h: number; lines: string[] }>())
   // Lazily-built spatial index for the settled layout (docs/33 §4.5). Null while
   // the simulation runs or a node is dragged: positions move every frame then, so
   // hit-testing falls back to the linear scan.
@@ -565,7 +565,12 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     rafRef.current = requestAnimationFrame(loop)
   }
 
-  /** Pill widths come from the real text, so long titles are not clipped. */
+  /**
+   * Pill boxes come from the real text, wrapped rather than clipped: a long CJK
+   * title becomes 2–3 lines inside a compact pill, so the chain-tree columns
+   * stay close together and no label is cut at the pill edge. Height is derived
+   * from the line count; the layered layout already sizes rows from node h.
+   */
   function measureNodes(model: GraphModel) {
     const ctx = canvasRef.current?.getContext('2d')
     if (!ctx) return
@@ -573,6 +578,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     // The label set is bounded by the engagement's history, but a cache miss is
     // always cheaper than unbounded growth: drop it and re-measure next rebuild.
     if (cache.size > 4096) cache.clear()
+    const TITLE_FONT = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+    const MODEL_FONT = `500 11px "JetBrains Mono","Cascadia Code",monospace`
+    const LINE_H = 16
+    const MODEL_H = 15
+    const V_PAD = 10
     for (const n of model.nodes) {
       if (n.type === 'fact' || n.type === 'ghost') continue
       // A pill's box depends on its text and, on a step, on the model line.
@@ -581,28 +591,33 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       if (cached) {
         n.w = cached.w
         n.h = cached.h
+        n.labelLines = cached.lines
         continue
       }
+      // Wrap only the drawn box types; a force-map step is a diamond and has no
+      // label inside it.
+      ctx.font = TITLE_FONT
+      const wraps = n.type === 'step' || n.type === 'intent' || n.type === 'goal' || n.type === 'project'
+      const lines = wraps ? wrapText(ctx, n.label, PILL_TEXT_W, PILL_MAX_LINES) : [n.label]
+      let maxLineW = 0
+      for (const line of lines) maxLineW = Math.max(maxLineW, ctx.measureText(line).width)
+      const hasModel = n.type === 'step' && Boolean(n.model)
+      if (hasModel) {
+        ctx.font = MODEL_FONT
+        maxLineW = Math.max(maxLineW, ctx.measureText(fitText(ctx, n.model!, PILL_TEXT_W)).width)
+      }
       if (n.type === 'step') {
-        // The chain-tree layout draws a step as a labelled pill: title line plus
+        // The chain-tree layout draws a step as a labelled pill: title lines plus
         // the model line. The force map ignores w/h for steps and keeps the
         // diamond, so measuring the wider two-line box only widens the columns.
-        ctx.font = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-        const title = ctx.measureText(n.label).width
-        let modelWidth = 0
-        if (n.model) {
-          ctx.font = `500 10px "JetBrains Mono","Cascadia Code",monospace`
-          modelWidth = ctx.measureText(n.model).width
-        }
-        n.w = Math.max(34, Math.min(Math.max(title, modelWidth) / 2 + 12, 175))
-        n.h = n.model ? 20 : 13
+        n.w = Math.max(40, Math.min(maxLineW / 2 + 12, 140))
+        n.h = (lines.length * LINE_H + (hasModel ? MODEL_H : 0) + V_PAD) / 2
       } else {
-        ctx.font = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-        const w = ctx.measureText(n.label).width
-        n.w = Math.max(46, Math.min(w / 2 + 12, 190))
-        n.h = 15
+        n.w = Math.max(46, Math.min(maxLineW / 2 + 12, 140))
+        n.h = (lines.length * LINE_H + V_PAD) / 2
       }
-      cache.set(key, { w: n.w, h: n.h })
+      n.labelLines = lines
+      cache.set(key, { w: n.w, h: n.h, lines })
     }
   }
 
@@ -1155,7 +1170,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         tabIndex={0}
         role="application"
         aria-label={ariaLabel}
-        className="absolute inset-0 touch-none outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400/70"
+        className="absolute inset-0 touch-none outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring/70 focus-visible:outline-offset-2"
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

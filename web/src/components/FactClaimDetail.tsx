@@ -6,6 +6,10 @@
 // "a pass reviewed an older assertion, the current assertion is unverified".
 // The state is derived from reviews[] + fact.claim_version (lib/claim.ts); no
 // backend field is invented.
+//
+// Visual role: a supporting detail block, not a page. It uses the quiet half of
+// the type ramp (11–12px, ink-2/ink-3) so the fact title above it keeps the
+// weight, and every review is one flat hairline row instead of a stack of cards.
 import { useMemo } from 'react'
 import { Badge, Callout, StatusIndicator } from '@cyber/ui'
 import { fmtTime, statusKind, statusLabel } from '@/lib/format'
@@ -37,9 +41,9 @@ export function FactClaimDetail({
     summary.state === 'needs_evidence'
 
   return (
-    <div className="space-y-1.5" data-fact-claim-detail>
+    <div className="space-y-2.5" data-fact-claim-detail>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">断言与复核</span>
+        <span className="tw-eyebrow">断言与复核</span>
         <Badge
           size="sm"
           variant="secondary"
@@ -66,10 +70,10 @@ export function FactClaimDetail({
       {needsAttention ? (
         <Callout tone="warning">{summary.detail}</Callout>
       ) : shownDetail ? (
-        <div className="text-[11px] leading-relaxed text-muted-foreground">{summary.detail}</div>
+        <div className="text-[12px] leading-relaxed text-ink-2">{summary.detail}</div>
       ) : null}
 
-      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px]">
         <ClaimMeta
           label="声明"
           value={fact.declaration_id || '未记录'}
@@ -95,24 +99,25 @@ export function FactClaimDetail({
         />
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          复核（{sortedReviews.length}）
-        </span>
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-2.5">
+        <span className="tw-eyebrow">复核（{sortedReviews.length}）</span>
         {summary.proved && (
-          <span className="font-mono text-[10px] text-muted-foreground" title="最近一次通过结论所证明的断言版本">
+          <span className="font-mono text-[11px] tw-nums text-ink-3" title="最近一次通过结论所证明的断言版本">
             最近通过 {reviewVersionLabel(summary.proved.review)}
           </span>
         )}
       </div>
       {sortedReviews.length === 0 ? (
-        <div className="text-[11px] text-muted-foreground">没有复核记录</div>
+        <div className="text-[12px] text-ink-3">没有复核记录</div>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {sortedReviews.map((review) => {
             const covers = reviewCoversCurrentClaim(review, fact)
             return (
-              <div key={review.id} className="rounded border border-border/60 px-2 py-1">
+              <div
+                key={review.id}
+                className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5"
+              >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <StatusIndicator
                     compact
@@ -132,17 +137,17 @@ export function FactClaimDetail({
                       旧断言
                     </Badge>
                   )}
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  <span className="ml-auto font-mono text-[11px] tw-nums text-ink-3">
                     {fmtTime(review.created_at)}
                   </span>
                 </div>
                 {review.notes && (
-                  <div className="tw-break mt-0.5 text-[11px] leading-relaxed text-foreground/85">
+                  <div className="tw-break mt-1 text-[12px] leading-relaxed text-ink-2">
                     {review.notes}
                   </div>
                 )}
                 {review.verifier_run && (
-                  <div className="truncate font-mono text-[10px] text-muted-foreground" title={review.verifier_run}>
+                  <div className="truncate font-mono text-[11px] text-ink-3" title={review.verifier_run}>
                     复核 run {review.verifier_run}
                   </div>
                 )}
@@ -168,10 +173,13 @@ function ClaimMeta({
 }) {
   return (
     <>
-      <span className="text-muted-foreground" title={title}>
+      <span className="text-[11px] leading-5 text-ink-3" title={title}>
         {label}
       </span>
-      <span className={`tw-break min-w-0 ${mono ? 'font-mono' : ''} text-foreground/85`} title={title}>
+      <span
+        className={`tw-break min-w-0 text-[12px] leading-5 text-ink-2 ${mono ? 'font-mono' : ''}`}
+        title={title}
+      >
         {value}
       </span>
     </>

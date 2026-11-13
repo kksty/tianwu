@@ -27,7 +27,9 @@ type contextFile struct {
 func (s *Server) runContext(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	run, ok := s.Store.GetRun(id)
-	if !ok {
+	if !ok || (harnessSession(r) && supportPurpose(run.Purpose)) {
+		// Report/verification runs are operator-side post-processing: a session
+		// gets the same 404 as a missing run so the surface reveals nothing.
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "没有这条运行"})
 		return
 	}

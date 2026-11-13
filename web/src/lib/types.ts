@@ -387,6 +387,9 @@ export interface PlaybooksResponse {
 export interface Goal {
   id: string
   statement: string
+  /** Operator-defined starting point for this goal (what is known now). Empty
+   *  on the goal created with a project: the project brief is the start there. */
+  start?: string
   met: boolean
   evidence_id?: string
   /** One line written at seal time: why the commander judged it met. */
@@ -426,9 +429,12 @@ export type PauseKind =
  *  it already created instead of appending a second one. */
 export interface AppendGoalRequest {
   statement: string
+  /** Operator-defined starting point for the appended goal. */
+  start?: string
+  /** Legacy fields kept for older servers; the console no longer fills them. */
   quantified_target?: string
-  idempotency_key: string
   note?: string
+  idempotency_key: string
 }
 
 /** 200 answer of the append-goal action. `created=false` means this key already
@@ -973,6 +979,7 @@ export interface FrontierItem {
 export interface GoalItem {
   id: string
   statement: string
+  start?: string
   quantified_target?: string
 }
 
@@ -1199,13 +1206,14 @@ export interface ReportPrecheck {
 /**
  * How hard a direction's hard premises (from_fact_ids) must be before the
  * control plane will create/dispatch it.
- *   standard — the premise fact must exist and must not be rejected (the
- *              historical behaviour);
- *   strict   — a vuln/cred premise must additionally be verified: a pass
- *              review bound to its current claim version. A premise whose
- *              assertion changed after review counts as unverified.
+ *   standard      — the premise fact must exist and must not be rejected (the
+ *                   historical behaviour);
+ *   verified_only — every necessary premise must be a reviewable kind and be
+ *                   verified at its current claim version, with a receipt bound
+ *                   to that version and intact original evidence. Legacy
+ *                   manifests that still say "strict" are read as this mode.
  */
-export type PremisePolicy = 'standard' | 'strict' | 'verified_only'
+export type PremisePolicy = 'standard' | 'verified_only'
 
 /** GET/PUT /api/premise-policy. premise_policy is the project's stored choice;
  *  effective is what create/dispatch actually enforce right now (they can
@@ -1241,6 +1249,9 @@ export interface ProjectInfo {
   /** Whether a run settling now actually triggers automatic verification (the
    *  override, or --verify-auto when none). */
   verify_auto_effective: boolean
+  /** Stored hard-premise admission mode. Absent on older rows reads as
+   *  standard; a legacy "strict" manifest reads as verified_only. */
+  premise_policy?: PremisePolicy
 }
 
 /** Instance-level LLM configuration; the key itself is never returned. */
@@ -1261,6 +1272,12 @@ export interface SettingsView {
   active_profile?: string
   /** Set when the file exists but cannot be parsed. */
   harness_error?: string
+}
+
+/** Instance-level auxiliary model gate: reviews and report runs share it. */
+export interface RuntimeSettings {
+  auxiliary_concurrency: number
+  max_auxiliary_concurrency: number
 }
 
 export interface AssetHost {

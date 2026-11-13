@@ -133,7 +133,8 @@ export function GraphMinimap({
       const rw = (x1 - x0) * map.scale
       const rh = (y1 - y0) * map.scale
       ctx.lineWidth = 1
-      ctx.strokeStyle = 'rgba(226,232,240,0.85)'
+      // ink-1 at 85%: the viewport rectangle is chrome, not a semantic colour.
+      ctx.strokeStyle = 'rgba(231,234,240,0.85)'
       ctx.strokeRect(rx + 0.5, ry + 0.5, Math.max(rw, 2), Math.max(rh, 2))
     }
   }, [bounds, model, view])
@@ -153,14 +154,14 @@ export function GraphMinimap({
 
   return (
     <div
-      className="pointer-events-auto overflow-hidden rounded-lg border border-border bg-card/85 p-1 shadow-lifted backdrop-blur"
+      className="pointer-events-auto overflow-hidden rounded-xl border border-hairline bg-card/90 p-1 shadow-lifted backdrop-blur"
       title="缩略图：点击或拖动定位到图上的位置"
     >
       <canvas
         ref={canvasRef}
         data-testid="graph-minimap"
         aria-label="图谱缩略图，点击或拖动可定位视图"
-        className="block h-[112px] w-[168px] cursor-crosshair rounded"
+        className="block h-[112px] w-[168px] cursor-crosshair rounded-md"
         style={{ width: WIDTH, height: HEIGHT }}
         onPointerDown={(event) => {
           event.preventDefault()

@@ -41,10 +41,17 @@ func TestDispatchPreparationRefusesAnIntentOwnedByAnotherRun(t *testing.T) {
 	}
 }
 
-func TestStrictPreparationRechecksTheActualClaim(t *testing.T) {
+func TestVerifiedOnlyPreparationRechecksTheActualClaim(t *testing.T) {
 	s := open(t)
-	f, _ := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first"})
-	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass"}); err != nil {
+	e, err := s.AddEvidence(model.Evidence{URI: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", Summary: "first", EvidenceIDs: []string{e.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-1"}); err != nil {
 		t.Fatal(err)
 	}
 	in, _ := s.CreateIntent(model.Intent{Title: "task", FromFactIDs: []string{f.ID}})
@@ -52,8 +59,8 @@ func TestStrictPreparationRechecksTheActualClaim(t *testing.T) {
 	if _, err := s.UpdateFact(f.ID, func(f *model.Fact) { f.Summary = "unreviewed replacement" }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseStrict); err == nil {
-		t.Fatal("strict dispatch accepted an unreviewed replacement")
+	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly); err == nil {
+		t.Fatal("verified_only dispatch accepted an unreviewed replacement")
 	}
 	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseStandard); err != nil {
 		t.Fatal(err)

@@ -40,11 +40,9 @@ export function IntentContextEditor({
   const [open, setOpen] = useState(false)
   const version = intent.context_version ?? 0
   return (
-    <div className="rounded border border-border/60 px-2 py-1.5" data-intent-context-editor>
+    <div className="rounded-lg border border-hairline bg-surface-2/40 px-2.5 py-2" data-intent-context-editor>
       <div className="flex items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          上下文（引用/固定）
-        </span>
+        <span className="tw-eyebrow normal-case tracking-normal text-ink-2">上下文（引用/固定）</span>
         <Badge size="sm" variant="muted" title="context_version：每次成功修改 +1；保存时带上打开时的版本">
           上下文 v{version}
         </Badge>
@@ -52,9 +50,10 @@ export function IntentContextEditor({
           {open ? '收起' : '编辑'}
         </Button>
       </div>
-      <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-        引用 {intent.context_fact_ids?.length ?? 0} · 固定 {intent.pinned_fact_ids?.length ?? 0} · 实体{' '}
-        {intent.interest_entity_refs?.length ?? 0}
+      <div className="mt-1 text-[11px] leading-relaxed text-ink-3">
+        引用 <span className="tw-nums font-mono text-ink-2">{intent.context_fact_ids?.length ?? 0}</span> · 固定{' '}
+        <span className="tw-nums font-mono text-ink-2">{intent.pinned_fact_ids?.length ?? 0}</span> · 实体{' '}
+        <span className="tw-nums font-mono text-ink-2">{intent.interest_entity_refs?.length ?? 0}</span>
         。引用/固定只决定这次读什么，不改硬前提。
       </div>
       {open && <ContextEditorBody key={intent.id} intent={intent} onSaved={onSaved} onSelectFact={onSelectFact} />}
@@ -197,16 +196,16 @@ function ContextEditorBody({
   }
 
   return (
-    <div className="mt-1.5 space-y-1.5 border-t border-border/60 pt-1.5">
-      <div className="text-[10px] leading-relaxed text-muted-foreground">
+    <div className="mt-2 space-y-2.5 border-t border-hairline pt-2.5">
+      <div className="text-[11px] leading-relaxed text-ink-3">
         操作员可改整个项目；参与者的运行只能改自己持有的方向，边界外请求会被服务端拒绝。
       </div>
 
       {remoteChanged && (
         <Callout tone="warning">
           上下文已被他人修改（服务端 v{server.version}）。保存会提示冲突，不会静默覆盖。
-          <div className="mt-1">
-            <Button size="xs" variant="outline" disabled={busy} onClick={() => void loadLatest()}>
+          <div className="mt-1.5">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void loadLatest()}>
               载入最新版本（保留草稿）
             </Button>
           </div>
@@ -231,39 +230,39 @@ function ContextEditorBody({
       />
 
       <div>
-        <div className="mb-0.5 flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">添加引用/固定</span>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+        <div className="mb-1 flex items-center gap-1.5">
+          <span className="text-[12px] font-medium text-ink-2">添加引用/固定</span>
+          <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">
             已载入 {factRows.length} 条事实
           </span>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1.5">
           <Input
             value={picker}
             onChange={(event) => setPicker(event.target.value)}
             placeholder="按事实 id 或标题搜索"
             aria-label="搜索事实"
-            className="h-7 flex-1 text-[11px]"
+            className="h-8 flex-1 text-[12px]"
           />
           <Button size="xs" variant="ghost" disabled={facts.loading} onClick={() => facts.reload()}>
             刷新
           </Button>
         </div>
-        {facts.error && <div className="mt-0.5 text-[11px] text-destructive">{facts.error}</div>}
-        <div className="mt-1 space-y-0.5">
-          {facts.loading && <div className="text-[11px] text-muted-foreground">正在载入事实…</div>}
+        {facts.error && <div className="mt-1 text-[11px] text-destructive">{facts.error}</div>}
+        <div className="mt-1.5 space-y-1">
+          {facts.loading && <div className="text-[11px] text-ink-3">正在载入事实…</div>}
           {!facts.loading && matches.length === 0 && (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="rounded-lg border border-dashed border-hairline px-2.5 py-2 text-[11px] leading-relaxed text-ink-3">
               没有匹配；也可以直接点下方已有条目，或输入完整事实 id 后由服务端校验。
             </div>
           )}
           {matches.map((fact) => (
             <div
               key={fact.id}
-              className="flex items-center gap-1.5 rounded border border-border/50 px-1.5 py-0.5"
+              className="flex items-center gap-1.5 rounded-lg border border-hairline bg-card/40 px-2 py-1 transition-colors hover:bg-surface-2/60"
             >
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{fact.id}</span>
-              <span className="min-w-0 flex-1 truncate text-[11px]" title={fact.title}>
+              <span className="tw-break shrink-0 font-mono text-[11px] text-ink-3">{fact.id}</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2" title={fact.title}>
                 {fact.title}
               </span>
               <Button size="xs" variant="ghost" disabled={busy} onClick={() => addReference(fact.id)}>
@@ -278,7 +277,7 @@ function ContextEditorBody({
       </div>
 
       <div>
-        <div className="mb-0.5 text-[11px] text-muted-foreground">
+        <div className="mb-1 text-[12px] font-medium text-ink-2">
           关注实体（{parseEntityRefs(entitiesText).length}）
         </div>
         <Textarea
@@ -287,20 +286,20 @@ function ContextEditorBody({
           value={entitiesText}
           onChange={(event) => setEntitiesText(event.target.value)}
           placeholder={'每行一个，例如 host:10.0.0.5\n只记录显式实体，不从标题推断'}
-          className="text-[11px]"
+          className="text-[12px]"
         />
       </div>
 
       <HardPremises ids={intent.from_fact_ids ?? []} facts={factRows} onSelectFact={onSelectFact} />
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="xs" disabled={busy || !dirty} onClick={() => void save()}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" disabled={busy || !dirty} onClick={() => void save()}>
           {busy ? '保存中…' : '保存上下文'}
         </Button>
-        <Button size="xs" variant="ghost" disabled={busy || !dirty} onClick={() => adopt(base)}>
+        <Button size="sm" variant="ghost" disabled={busy || !dirty} onClick={() => adopt(base)}>
           撤销修改
         </Button>
-        <span className="font-mono text-[10px] text-muted-foreground">将以 v{base.version} 保存</span>
+        <span className="tw-nums font-mono text-[11px] text-ink-3">将以 v{base.version} 保存</span>
         {dirty && (
           <Badge size="sm" variant="warning">
             未保存
@@ -311,13 +310,13 @@ function ContextEditorBody({
         <Callout tone={errorKind === 'forbidden' ? 'destructive' : 'warning'}>
           {error}
           {errorKind === 'conflict' && (
-            <div className="mt-1 text-[10.5px]">
+            <div className="mt-1 text-[11px]">
               冲突意味着这个版本已经不是最新的：载入最新版本后重试，草稿不会丢。
             </div>
           )}
         </Callout>
       )}
-      {note && <div className="text-[11px] text-muted-foreground">{note}</div>}
+      {note && <div className="text-[11px] text-ink-3">{note}</div>}
     </div>
   )
 }
@@ -340,28 +339,31 @@ function ContextList({
   return (
     <div>
       <div className="flex items-center gap-1.5" title={hint}>
-        <span className="text-[11px] text-muted-foreground">{title}</span>
-        <span className="truncate text-[10px] text-muted-foreground/80">{hint}</span>
+        <span className="text-[12px] font-medium text-ink-2">{title}</span>
+        <span className="truncate text-[11px] text-ink-3">{hint}</span>
       </div>
-      {ids.length === 0 && <div className="text-[11px] text-muted-foreground">没有</div>}
-      <div className="space-y-0.5">
+      {ids.length === 0 && <div className="mt-0.5 text-[11px] text-ink-3">没有</div>}
+      <div className="mt-1 space-y-1">
         {ids.map((id) => (
-          <div key={id} className="flex items-center gap-1.5 rounded border border-border/50 px-1.5 py-0.5">
+          <div
+            key={id}
+            className="flex items-center gap-1.5 rounded-lg border border-hairline bg-card/40 px-2 py-1 transition-colors hover:bg-surface-2/60"
+          >
             {onSelectFact ? (
               <button
                 type="button"
                 onClick={() => onSelectFact(id)}
-                className="min-w-0 flex-1 truncate text-left text-[11px] text-foreground/85 hover:text-info"
+                className="min-w-0 flex-1 truncate text-left text-[11px] text-ink-2 transition-colors hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 title={`${id} · 点击在图上看这条事实`}
               >
                 {contextFactLabel(id, facts)}
               </button>
             ) : (
-              <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/85" title={id}>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2" title={id}>
                 {contextFactLabel(id, facts)}
               </span>
             )}
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{id}</span>
+            <span className="tw-break shrink-0 font-mono text-[11px] text-ink-3">{id}</span>
             <Button
               size="xs"
               variant="ghost"
@@ -388,35 +390,35 @@ function HardPremises({
   onSelectFact?: (factID: string) => void
 }) {
   return (
-    <div className="rounded border border-warning/30 bg-warning/5 px-2 py-1">
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-medium text-warning">必要前提（from_fact_ids）</span>
+    <div className="rounded-lg border border-warning/25 bg-warning/[0.06] px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[12px] font-medium text-warning">必要前提（from_fact_ids）</span>
         <Badge size="sm" variant="warning">
           硬门槛 · 只读
         </Badge>
       </div>
       {ids.length === 0 ? (
-        <div className="text-[11px] text-muted-foreground">没有硬前提：这条方向不依赖已有断言才能派发</div>
+        <div className="mt-1 text-[11px] text-ink-3">没有硬前提：这条方向不依赖已有断言才能派发</div>
       ) : (
-        <div className="mt-0.5 space-y-0.5">
+        <div className="mt-1 space-y-0.5">
           {ids.map((id) => (
             <button
               key={id}
               type="button"
               disabled={!onSelectFact}
               onClick={() => onSelectFact?.(id)}
-              className="flex w-full items-center gap-1.5 rounded px-0.5 py-0.5 text-left enabled:hover:bg-muted/60"
+              className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors enabled:hover:bg-surface-2 disabled:cursor-default"
               title={id}
             >
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{id}</span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/85">
+              <span className="tw-break shrink-0 font-mono text-[11px] text-ink-3">{id}</span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-ink-2">
                 {contextFactLabel(id, facts)}
               </span>
             </button>
           ))}
         </div>
       )}
-      <div className="text-[10px] leading-relaxed text-muted-foreground">
+      <div className="mt-1 text-[11px] leading-relaxed text-ink-3">
         改这里不会改硬前提：引用/固定只是阅读选择，派发仍要求这些前提存在且未被否决。
       </div>
     </div>

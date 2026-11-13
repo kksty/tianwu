@@ -15,7 +15,7 @@ import (
 //
 // It deliberately has no "at least one verified" rule (revokes D66's gate):
 // whether the goal is met is the commander's judgement against the goal's own
-// statement + quantified target, and the note is where that judgement is
+// statement + start, and the note is where that judgement is
 // written. The engine only enforces the receipt: every cited fact must carry
 // its own evidence, and the reason must exist. Verification remains a delivery
 // gate (a report's confirmed finding must be verified, report/validate.go), so a

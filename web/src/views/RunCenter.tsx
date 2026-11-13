@@ -4,6 +4,10 @@
 // its logic. The active tab is shell state (`?view=runs&tab=workers`), so the
 // component adds no local state — switching tabs remounts the child, which is
 // how each child's own polls have always worked.
+//
+// Visual role: the tab strip is quiet tertiary navigation above the child's
+// page header; the body owns the scroll so switching tabs never shifts the
+// page chrome.
 
 import { TabBar, type TabItem } from '@/components/TabBar'
 import type { ProjectInfo } from '@/lib/types'
@@ -42,9 +46,9 @@ export function RunCenter({
   onOpenRun?: (runID: string) => void
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={RUN_TABS} tab={tab} onTab={onTab} ariaLabel="运行" />
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {tab === 'runs' ? (
           <Runs onOpenIntent={onOpenIntent} onOpenGraphIntent={onOpenGraphIntent} />
         ) : tab === 'workers' ? (

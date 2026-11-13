@@ -27,10 +27,13 @@ func TestCommanderRoundPromptNamesCurrentReadEntries(t *testing.T) {
 	if !strings.Contains(prompt, "from_fact_ids") {
 		t.Fatalf("commander identity lost the premise contract:\n%s", prompt)
 	}
-	// A simplified project can start with a paragraph and no goal; the first
-	// round must know it may create the start/end goals itself.
-	if !strings.Contains(prompt, "POST /api/goals") {
-		t.Fatalf("commander identity lost the goal bootstrap:\n%s", prompt)
+	// Goals are operator-defined: the round prompt must say so and must not
+	// invite the commander to create, split or rewrite one.
+	if !strings.Contains(prompt, "目标由操作员定义") {
+		t.Fatalf("commander identity lost the operator-owned goal contract:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "POST /api/goals") {
+		t.Fatalf("commander identity still invites goal creation:\n%s", prompt)
 	}
 	// Emergent collaboration: executors may self-organize; the commander sets
 	// direction and acceptance, not a role hierarchy.

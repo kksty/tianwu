@@ -92,11 +92,15 @@ type Manifest struct {
 	PeerPolicy *PeerPolicy `json:"peer_policy,omitempty"`
 	// PremisePolicy governs how strictly a direction's from_fact_ids must be
 	// backed. Empty or "standard" is the existing behaviour: the premise must
-	// exist and must not be rejected. "strict" additionally requires a
-	// vuln/cred premise to be verified (a pass review bound to its current
-	// claim version) before a direction can be created or dispatched. It is an
-	// operator setting because it changes what the ledger accepts as a
-	// actionable predecessor, not a tactic.
+	// exist and must not be rejected at dispatch. "verified_only" (证明优先) is
+	// the operator's high-assurance mode: every necessary premise must be a
+	// reviewable kind, verified (a pass review bound to its current claim
+	// version) with intact original evidence, before the direction can be
+	// dispatched; a reviewable-but-pending premise may be registered so the
+	// review queue can schedule its proof. It is an operator setting because it
+	// changes what the ledger accepts as an actionable predecessor, not a
+	// tactic. Legacy manifests that still store "strict" are read as
+	// "verified_only" (see effectivePremisePolicy).
 	PremisePolicy string `json:"premise_policy,omitempty"`
 }
 

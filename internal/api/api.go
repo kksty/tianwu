@@ -3462,6 +3462,7 @@ func (s *Server) listGoals(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Statement        string `json:"statement"`
+		Start            string `json:"start"`
 		QuantifiedTarget string `json:"quantified_target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -3469,32 +3470,28 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Statement = strings.TrimSpace(req.Statement)
+	req.Start = strings.TrimSpace(req.Start)
 	if req.Statement == "" {
 		writeErr(w, 400, "statement 不能为空：目标要能判断真假")
 		return
 	}
-	// The commander maintains exactly one endpoint goal. Additional goals are an
-	// explicit operator decision (POST /api/project/append-goal, an operator-only
-	// route); letting an agent append a second goal is what turned the initial
-	// "起点 → 终点" briefing into a pile of task-like goals.
-	if _, agent := identityOf(r); agent {
-		if len(s.Store.Goals()) > 0 {
-			writeJSON(w, http.StatusConflict, map[string]any{
-				"error": "项目已有终点目标：指挥官只维护这一个终点；需要新增目标时由操作员显式追加。",
-				"code":  "goal_exists",
-			})
-			return
-		}
-	}
-	creatorRun := ""
-	if actorOf(r) == collab.CommanderID {
-		if run, live := s.liveCommanderRun(); live {
-			creatorRun = run.ID
-		}
+	// Goals are the operator's definition of the endpoint; commanders and
+	// executors only do the testing. Letting an agent write goals is what turned
+	// the "起点 → 终点" briefing into task-like goals, so the whole goal
+	// definition is operator-only (harnessSession also covers the commander's
+	// marked project-mux credential, where no per-run identity exists).
+	if harnessSession(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "目标由操作员定义：指挥官与执行者只负责测试，不能创建或改写目标。",
+			"code":  "goal_operator_only",
+		})
+		return
 	}
 	g, err := s.Store.AddGoal(model.Goal{
-		CreatedByRun:     creatorRun,
-		Statement:        req.Statement,
+		Statement: req.Statement,
+		Start:     req.Start,
+		// Kept for API compatibility with older callers; the console no longer
+		// offers a "quantified criterion" input.
 		QuantifiedTarget: strings.TrimSpace(req.QuantifiedTarget),
 	})
 	if err != nil {
@@ -3504,8 +3501,20 @@ func (s *Server) createGoal(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, g)
 }
 
+// pinGoal is the operator's manual seal: one evidence row plus the reason, with
+// no citation requirement beyond verified_only's admission. It is deliberately
+// operator-only — a session closes its goal through completeGoal, which enforces
+// the ledger's citation rules — so a guessed intent id cannot hand-stamp the
+// operator's endpoint (cmd/tw auth also 404s /met for the harness credential).
 func (s *Server) pinGoal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if harnessSession(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"error": "手工盖章属于操作员：指挥官判断达成请用 complete 并引用事实。",
+			"code":  "goal_operator_only",
+		})
+		return
+	}
 	var req struct {
 		EvidenceID string   `json:"evidence_id"`
 		Note       string   `json:"note"`
@@ -3592,8 +3601,30 @@ func (s *Server) putState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"saved": true, "bytes": len(req.State)})
 }
 
+// supportPurpose reports whether a run is operator-side support work: report
+// writing and verification. Commander and executor sessions only do the test
+// itself, so these runs (and the report/review workflow behind them) are
+// invisible on their API surface.
+func supportPurpose(purpose string) bool {
+	return purpose == "report" || purpose == "verifier"
+}
+
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"runs": s.Store.Runs()})
+	runs := s.Store.Runs()
+	// The agent surface is the battlefield: a report or verification run is the
+	// operator's post-processing, not the session's work. harnessSession covers
+	// both the participant mux and the commander's project-mux credential.
+	if harnessSession(r) {
+		visible := make([]model.Run, 0, len(runs))
+		for _, run := range runs {
+			if supportPurpose(run.Purpose) {
+				continue
+			}
+			visible = append(visible, run)
+		}
+		runs = visible
+	}
+	writeJSON(w, 200, map[string]any{"runs": runs})
 }
 
 // guardInfo is the watchdog's public pulse for the console: cadence, idle
@@ -3650,6 +3681,13 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		t := time.Unix(0, n)
 		g.LastTickAt = &t
 	}
+	// Review/report queue state is operator-side post-processing: the commander
+	// and executors only see facts and their review verdicts, not the queue that
+	// produces reports. A zeroed summary keeps the response shape stable.
+	reviews := reviewSummary{}
+	if !harnessSession(r) {
+		reviews = s.reviewSummary()
+	}
 	writeJSON(w, 200, struct {
 		board.View
 		Decider       decider.Status   `json:"decider"`
@@ -3670,7 +3708,7 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 
 		Usage:           board.Tokens(s.Store, time.Now()),
 		Digest:          board.Digest(v),
-		HandoffWarnings: recentHandoffWarnings(s.Store, 5), Reviews: s.reviewSummary()})
+		HandoffWarnings: recentHandoffWarnings(s.Store, 5), Reviews: reviews})
 }
 
 func (s *Server) triggerDecide(w http.ResponseWriter, r *http.Request) {
@@ -3854,6 +3892,12 @@ func (s *Server) listDecisions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if harnessSession(r) {
+		if run, ok := s.Store.GetRun(id); ok && supportPurpose(run.Purpose) {
+			writeErr(w, 404, "run not found")
+			return
+		}
+	}
 	if err := s.CancelRun(id); err != nil {
 		writeErr(w, 404, err.Error())
 		return
@@ -3978,6 +4022,15 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	if !isPlainID(id) {
 		writeErr(w, 404, "no log for run "+id)
 		return
+	}
+	// Support runs never exist for a commander/executor session. harnessSession
+	// covers both the participant identity and the commander's marked project
+	// request, so neither credential can confirm a support run exists.
+	if harnessSession(r) {
+		if run, ok := s.Store.GetRun(id); !ok || supportPurpose(run.Purpose) {
+			writeErr(w, 404, "no log for run "+id)
+			return
+		}
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 2000 {

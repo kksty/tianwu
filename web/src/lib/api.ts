@@ -63,6 +63,7 @@ import type {
   RetryResult,
   Run,
   RunContext,
+  RuntimeSettings,
   SettingsView,
   SpawnRequest,
   SpawnResponse,
@@ -288,6 +289,11 @@ export const api = {
   // run read them, so they are not under /p/<id>/.
   settings: () => get<SettingsView>('/api/settings'),
   saveSettings: (body: Partial<SettingsView>) => put<SettingsView>('/api/settings', body),
+  // The instance-level gate shared by verifier and report runs. It is not a
+  // project setting: one value bounds every project's auxiliary calls.
+  runtimeSettings: () => get<RuntimeSettings>('/api/runtime-settings'),
+  saveRuntimeSettings: (auxiliary_concurrency: number) =>
+    put<RuntimeSettings>('/api/runtime-settings', { auxiliary_concurrency }),
   // Ask the configured endpoint what it serves; the controller makes the call so
   // the key stays on the server.
   models: () =>
@@ -334,15 +340,20 @@ export const api = {
   projects: () => api.projectIndex().then((r) => r.projects),
   // The 态势 page: one instance-wide snapshot instead of N board requests.
   fleet: () => get<FleetResponse>('/api/fleet'),
-  createProject: (name: string, scope: string, goal = '', quantified_target = '', description = '') =>
-    post<ProjectInfo>('/api/projects', { name, scope, goal, quantified_target, description }),
+  // An operator-authored engagement: 起点 becomes the project brief (scope),
+  // 终点 becomes the single endpoint goal. The commander does not derive either.
+  createProject: (name: string, start: string, end = '', description = '') =>
+    post<ProjectInfo>('/api/projects', { name, scope: start, goal: end, description }),
   // Every field is optional server-side: omitted keeps the current value, and
   // max_runs: null restores "inherit the instance default". worker_profile /
   // strong_profile use "" to clear the project default (inherit the instance
   // active profile). round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
   // verify_auto: null restores "inherit --verify-auto", true/false pins the
-  // project's own automatic-verification policy (D100).
+  // project's own automatic-verification policy (D100). premise_policy is the
+  // project's standard/verified_only admission mode: it is saved with the other
+  // project defaults, not on the execution page. Legacy manifests that still
+  // say strict are read as verified_only.
   updateProject: (
     id: string,
     body: {
@@ -353,6 +364,7 @@ export const api = {
       worker_profile?: string
       strong_profile?: string
       verify_auto?: boolean | null
+      premise_policy?: PremisePolicy
     },
   ) => put<ProjectInfo>(`/api/projects/${encodeURIComponent(id)}`, body),
   deleteProject: (id: string) =>
@@ -400,10 +412,12 @@ export const api = {
   savePeers: (body: PeerPolicy) => put<PeerPolicyResponse>(`${pbase()}/api/peers`, body),
 
   // Premise policy: how hard a direction's hard premises must be. standard is
-  // the historical rule (the from_fact exists and is not rejected); strict also
-  // requires a vuln/cred premise to be verified at its current claim version.
-  // Operator-only. The response carries the stored choice plus the effective
-  // one so the console never presents an assumed state as saved.
+  // the historical rule (the from_fact exists and is not rejected);
+  // verified_only requires every necessary premise to be a reviewable kind with
+  // a current-claim independent proof and intact originals. Legacy strict
+  // manifests read as verified_only. Operator-only. The response carries the
+  // stored choice plus the effective one so the console never presents an
+  // assumed state as saved.
   premisePolicy: () => get<PremisePolicyResponse>(`${pbase()}/api/premise-policy`),
   savePremisePolicy: (premise_policy: PremisePolicy) =>
     put<PremisePolicyResponse>(`${pbase()}/api/premise-policy`, { premise_policy }),
@@ -616,8 +630,10 @@ export const api = {
     `${pbase()}/api/evidence/${encodeURIComponent(id)}?download=1`,
 
   goals: () => get<{ goals: Goal[] }>(`${pbase()}/api/goals`).then((r) => r.goals ?? []),
-  createGoal: (statement: string, quantified_target: string) =>
-    post<Goal>(`${pbase()}/api/goals`, { statement, quantified_target }),
+  // Operator-defined endpoint: 起点 (where we start) + 终点 (falsifiable end
+  // state). There is no quantified-criterion input any more.
+  createGoal: (statement: string, start: string) =>
+    post<Goal>(`${pbase()}/api/goals`, { statement, start }),
   // A seal is an argument, not a checkbox: the note says why, the evidence id
   // points at the proof, the server keeps both on the goal.
   metGoal: (id: string, evidence_id: string, note: string) =>

@@ -6,6 +6,7 @@ import {
   Settings as SettingsIcon,
   ShieldAlert,
   SquareTerminal,
+  TriangleAlert,
   Waypoints,
 } from 'lucide-react'
 import { Button, Callout } from '@cyber/ui'
@@ -92,7 +93,7 @@ export function GlobalShell() {
         <Button size="sm" variant="outline" className="w-full justify-start gap-2" onClick={() => gotoProject(first.id)}>
           <Waypoints className="h-4 w-4" /><span className="truncate">进入项目 · {first.name}</span>
         </Button>
-      ) : <div className="px-1 py-1 text-xs text-muted-foreground">还没有项目</div>}>
+      ) : <div className="px-1 py-1 text-[12px] text-ink-3">还没有项目</div>}>
         <nav aria-label="全局导航" className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {GLOBAL_NAV.map((item) => (
             <SideNav
@@ -110,10 +111,31 @@ export function GlobalShell() {
       </ConsoleRail>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {projects.error && <div className="shrink-0 p-4" role="alert"><Callout tone="destructive">项目列表读取失败：{projects.error}</Callout></div>}
+        {/* Shell-level failure only: the content of each page owns its own
+            loading/empty states, but a broken project index also breaks the
+            rail footer and the project pickers inside pages, so it is surfaced
+            once here with a retry instead of being repeated per view. */}
+        {projects.error && (
+          <div className="shrink-0 px-5 pt-4 sm:px-6 lg:px-8" role="alert">
+            <Callout tone="destructive" icon={<TriangleAlert className="h-4 w-4" />}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span className="min-w-0 tw-break">项目列表读取失败：{projects.error}</span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={projects.reload}
+                  disabled={projects.loading || projects.refreshing}
+                >
+                  {projects.refreshing ? '重试中…' : '重试'}
+                </Button>
+              </div>
+            </Callout>
+          </div>
+        )}
         {/* No second title bar here: every global view renders its own banner
             (title + subtitle + actions) through <Page>, so the instance shell
-            only supplies navigation. */}
+            only supplies navigation. The Suspense fallback mirrors the page
+            header so the banner never jumps when the lazy chunk lands. */}
         <div className="min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={<PageSkeleton />}>
             {view === 'fleet' ? (

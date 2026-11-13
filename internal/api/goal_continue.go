@@ -120,6 +120,7 @@ func (s *Server) projectState() projectState {
 func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Statement        string `json:"statement"`
+		Start            string `json:"start"`
 		QuantifiedTarget string `json:"quantified_target"`
 		IdempotencyKey   string `json:"idempotency_key"`
 		Note             string `json:"note"`
@@ -129,6 +130,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Statement = strings.TrimSpace(req.Statement)
+	req.Start = strings.TrimSpace(req.Start)
 	req.QuantifiedTarget = strings.TrimSpace(req.QuantifiedTarget)
 	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
 	req.Note = strings.TrimSpace(req.Note)
@@ -174,6 +176,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 
 	goal, created, err := s.Store.AddGoalIdempotent(model.Goal{
 		Statement:        req.Statement,
+		Start:            req.Start,
 		QuantifiedTarget: req.QuantifiedTarget,
 		IdempotencyKey:   req.IdempotencyKey,
 	})

@@ -23,14 +23,17 @@ export function ConsoleRail({ title, active, context, children, footer }: {
   const contents = <>
     <div className="shrink-0 px-5 pb-4 pt-6">
       <Brand />
-      <div className="mt-4 flex items-center gap-2 text-[11px] tracking-wider text-muted-foreground"><span className="h-1 w-1 rounded-full bg-primary/80" />{title}</div>
+      <div className="tw-eyebrow mt-4 flex items-center gap-2">
+        <span className="h-1 w-1 rounded-full bg-primary" />
+        {title}
+      </div>
     </div>
     {context && <div className="mx-3 mb-3 shrink-0">{context}</div>}
     {children}
-    <div className="m-3 mt-auto shrink-0 border-t border-border/70 pt-3">{footer}</div>
+    <div className="m-3 mt-auto shrink-0 border-t border-hairline pt-3">{footer}</div>
   </>
   return <>
-    <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
+    <div className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 lg:hidden">
       <Brand />
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="打开导航"><Menu className="h-4 w-4" />导航</Button></SheetTrigger>
@@ -43,6 +46,6 @@ export function ConsoleRail({ title, active, context, children, footer }: {
         </SheetContent>
       </Sheet>
     </div>
-    <aside className="tw-rail hidden w-[232px] shrink-0 flex-col border-r border-border/80 lg:flex">{contents}</aside>
+    <aside className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex">{contents}</aside>
   </>
 }

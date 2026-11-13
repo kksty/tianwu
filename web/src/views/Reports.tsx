@@ -20,7 +20,7 @@ import {
   StatusIndicator,
 } from '@cyber/ui'
 import { MiniMarkdown } from '@/components/MiniMarkdown'
-import { Page } from '@/components/Page'
+import { Page, Panel } from '@/components/Page'
 import { api } from '@/lib/api'
 import { fmtTime, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
@@ -32,6 +32,10 @@ import type { ReportMeta, ReportPrecheck } from '@/lib/types'
  * Unverified conclusions are only allowed as candidates, so a report that writes
  * them confirmed fails validation — the operator gets one chance to review them
  * first, but the precheck is advisory and never blocks the run (D100).
+ *
+ * The page is one list: every row is a generated report (id, what it found, when,
+ * validation checks), and the single primary action is "生成报告". The empty
+ * state explains the generate flow instead of leaving a blank panel.
  */
 export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
   const list = usePoll(api.reports, 4000)
@@ -80,7 +84,7 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
     try {
       const [existingReports, existingRuns] = await Promise.all([api.reports(), api.runs()])
       await api.createReport()
-      setNote('已排入生成队列：一次真实的执行器运行，写完才出现在列表里。')
+      setNote('已排入生成队列：一次独立的报告撰写运行（不占用指挥官/执行者），写完才出现在列表里。')
       setPendingReport(JSON.stringify({ reports: existingReports.map(r => r.id), runs: existingRuns.map(r => r.id) }))
       list.reload()
       progress.reload()
@@ -130,65 +134,118 @@ export function Reports({ onGoVerify }: { onGoVerify?: () => void } = {}) {
         </Button>
       }
     >
-      {(generating || pendingReport) && <Callout className="mb-3"><span role="status">{generating ? '报告生成中，完成后会自动出现在下方。' : '已排队，正在等待报告运行。'}</span><a className="ml-2 underline" href="?view=runs">查看运行进度</a></Callout>}
-      {pending && !generating && progress.data && !progress.error && !runs.error && !list.error && <p className="mb-3 text-xs text-muted-foreground">若等待没有进展，可先查看运行记录。<Button size="xs" variant="ghost" onClick={() => { setPendingReport(''); setNote('已结束等待；如需重新生成，请先核对运行记录。') }}>已核对，结束等待</Button></p>}
-      {failure && <Callout tone="destructive" className="mb-3">{failure}</Callout>}
-      {(list.error || progress.error || runs.error) && <Callout tone="warning" className="mb-3">状态更新失败，当前显示上次读取的数据。<Button size="xs" variant="outline" disabled={list.refreshing || progress.refreshing || runs.refreshing} onClick={() => { list.reload(); progress.reload(); runs.reload() }}>重试更新</Button></Callout>}
-      {note && <Callout tone="info" className="mb-3">{note}</Callout>}
-      {list.loading && <SkeletonList count={4} />}
-      {!list.loading && !list.error && !generating && !pendingReport && rows.length === 0 && (
-        <EmptyState
-          icon={FileText}
-          title="还没有报告"
-          description="生成前会提示未复核结论；可先完成复核，或确认后继续生成报告。"
-        />
+      {(generating || pendingReport) && (
+        <Callout className="mb-3">
+          <span role="status">{generating ? '报告生成中，完成后会自动出现在下方。' : '已排队，正在等待报告运行。'}</span>
+          <a className="ml-2 underline underline-offset-2" href="?view=runs">查看运行进度</a>
+        </Callout>
       )}
+      {pending && !generating && progress.data && !progress.error && !runs.error && !list.error && (
+        <p className="mb-3 text-[12px] leading-relaxed text-ink-2">
+          若等待没有进展，可先查看运行记录。
+          <Button size="xs" variant="ghost" onClick={() => { setPendingReport(''); setNote('已结束等待；如需重新生成，请先核对运行记录。') }}>
+            已核对，结束等待
+          </Button>
+        </p>
+      )}
+      {failure && <Callout tone="destructive" className="mb-3">{failure}</Callout>}
+      {(list.error || progress.error || runs.error) && (
+        <Callout tone="warning" className="mb-3">
+          状态更新失败，当前显示上次读取的数据。
+          <Button size="xs" variant="outline" disabled={list.refreshing || progress.refreshing || runs.refreshing} onClick={() => { list.reload(); progress.reload(); runs.reload() }}>
+            重试更新
+          </Button>
+        </Callout>
+      )}
+      {note && <Callout tone="info" className="mb-3">{note}</Callout>}
 
-      <div className="space-y-1.5">
-        {rows.map((r) => (
-          <div key={r.id} className="rounded-md border border-border bg-card px-3 py-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusIndicator compact status={statusKind(r.status)} label={statusLabel(r.status)} />
-              <button
-                type="button"
-                className="font-mono text-[13px] text-foreground hover:text-primary"
-                onClick={() => setOpen(r)}
-              >
-                {r.id}
-              </button>
-              <Badge size="sm" variant="secondary">
-                {r.findings} 条结论
-              </Badge>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {fmtTime(r.created_at)}
-                {r.finished_at ? ` → ${fmtTime(r.finished_at)}` : ''}
-              </span>
-              <a
-                className="ml-auto flex items-center gap-1 text-[12px] text-muted-foreground hover:text-primary"
-                href={api.reportFileURL(r.id, 'index.md')}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Download className="h-3 w-3" /> index.md
-              </a>
-            </div>
-            {r.checks && r.checks.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {r.checks.map((c, i) => (
-                  <span
-                    key={i}
-                    title={c.detail}
-                    className={`flex items-center gap-1 text-[11px] ${c.ok ? 'text-success' : 'text-destructive'}`}
-                  >
-                    {c.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                    {c.rule}
-                  </span>
-                ))}
-              </div>
-            )}
+      <Panel
+        title="报告列表"
+        extra={
+          <span className="tw-nums font-mono text-[11px] text-ink-3">{rows.length} 份</span>
+        }
+        bodyClassName="p-0"
+      >
+        {list.loading && (
+          <div className="p-4">
+            <SkeletonList count={4} />
           </div>
-        ))}
-      </div>
+        )}
+
+        {!list.loading && !list.error && !generating && !pendingReport && rows.length === 0 && (
+          <EmptyState
+            icon={FileText}
+            title="还没有报告"
+            description="点右上角「生成报告」：先检查未复核结论，确认后排队一次独立的报告撰写运行（不依赖指挥官或执行者），写完才出现在这里；生成前可先完成复核。"
+          />
+        )}
+
+        {rows.length > 0 && (
+          <div className="divide-y divide-hairline">
+            {rows.map((r) => (
+              <div
+                key={r.id}
+                className={
+                  'flex flex-wrap items-start gap-x-3 gap-y-2 px-2.5 py-2.5 transition-colors ' +
+                  (open?.id === r.id
+                    ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]'
+                    : 'hover:bg-surface-2')
+                }
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpen(r)}
+                      title="打开报告预览"
+                      aria-expanded={open?.id === r.id}
+                      className="tw-break rounded font-mono text-[13px] font-medium leading-5 text-ink hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      {r.id}
+                    </button>
+                    <Badge size="sm" variant="secondary">
+                      <span className="tw-nums font-mono">{r.findings}</span> 条结论
+                    </Badge>
+                    {r.status === 'stale' && (
+                      <Badge size="sm" variant="warning">账本变更后过期</Badge>
+                    )}
+                  </div>
+                  {r.checks && r.checks.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                      {r.checks.map((c, i) => (
+                        <span
+                          key={i}
+                          title={c.detail}
+                          className={`flex items-center gap-1 text-[11px] leading-4 ${c.ok ? 'text-success' : 'text-destructive'}`}
+                        >
+                          {c.ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                          {c.rule}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <StatusIndicator compact status={statusKind(r.status)} label={statusLabel(r.status)} />
+                  <span className="tw-nums whitespace-nowrap font-mono text-[11px] leading-4 text-ink-3">
+                    {fmtTime(r.created_at)}
+                    {r.finished_at ? ` → ${fmtTime(r.finished_at)}` : ''}
+                  </span>
+                  <a
+                    className="flex items-center gap-1 text-[12px] text-ink-2 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    href={api.reportFileURL(r.id, 'index.md')}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="下载报告正文 index.md"
+                  >
+                    <Download className="h-3 w-3" /> index.md
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
 
       <ReportSheet report={open} onOpenChange={(o) => !o && setOpen(null)} />
 
@@ -245,14 +302,46 @@ function ReportSheet({
 
   return (
     <Sheet open={!!report} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-2 sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="font-mono text-ui">{report?.id}</SheetTitle>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
+        <SheetHeader className="shrink-0 space-y-2 border-b border-hairline px-5 py-4 pr-12 text-left">
+          <div className="tw-eyebrow">报告预览</div>
+          <SheetTitle className="tw-break font-mono text-[15px] leading-6">{report?.id}</SheetTitle>
+          {report && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusIndicator compact status={statusKind(report.status)} label={statusLabel(report.status)} />
+                <Badge size="sm" variant="secondary">
+                  <span className="tw-nums font-mono">{report.findings}</span> 条结论
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] leading-4 text-ink-3">
+                <span className="tw-nums">生成 {fmtTime(report.created_at)}</span>
+                {report.finished_at && <span className="tw-nums">完成 {fmtTime(report.finished_at)}</span>}
+                <a
+                  className="inline-flex items-center gap-1 text-ink-2 hover:text-primary"
+                  href={api.reportFileURL(report.id, 'index.md')}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download className="h-3 w-3" /> 下载 index.md
+                </a>
+              </div>
+            </>
+          )}
         </SheetHeader>
-        <ScrollArea className="min-h-0 flex-1 pr-2">
-          {doc.loading && <SkeletonList count={6} />}
-          {doc.error && <Callout tone="destructive">{doc.error}</Callout>}
-          {doc.data && <MiniMarkdown text={doc.data} />}
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="px-5 py-4">
+            {doc.loading && <SkeletonList count={6} />}
+            {doc.error && (
+              <Callout tone="destructive">
+                {doc.error}
+                <Button size="xs" variant="outline" className="ml-2" onClick={doc.reload}>
+                  重试
+                </Button>
+              </Callout>
+            )}
+            {doc.data && <MiniMarkdown text={doc.data} />}
+          </div>
         </ScrollArea>
       </SheetContent>
     </Sheet>

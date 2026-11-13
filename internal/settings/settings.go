@@ -26,6 +26,11 @@ import (
 	"github.com/kksty/tianwu/internal/modelclient"
 )
 
+// MaxAuxiliaryConcurrency is the upper bound of the operator-tunable gate that
+// serialises review and report runs (one auxiliary model call at a time by
+// default). It is a console setting, not a harness setting.
+const MaxAuxiliaryConcurrency = 8
+
 // Model is the shared LLM configuration.
 type Model struct {
 	BaseURL       string `json:"base_url"`
@@ -36,9 +41,28 @@ type Model struct {
 	MaxTokens     int    `json:"max_tokens,omitempty"`
 }
 
+// Runtime groups the instance-level knobs that belong to the live console
+// rather than to a project or to a harness profile. The review/report gate is
+// process-wide and shared by every project, so it is not a project setting.
+//
+// It persists in the legacy settings.json only: the harness file (cyber.yaml)
+// is the harness's own model configuration and must not gain these fields.
+type Runtime struct {
+	AuxiliaryConcurrency int `json:"auxiliary_concurrency,omitempty"`
+}
+
+// Validate rejects values the gate cannot honour.
+func (r Runtime) Validate() error {
+	if r.AuxiliaryConcurrency < 1 || r.AuxiliaryConcurrency > MaxAuxiliaryConcurrency {
+		return fmt.Errorf("auxiliary_concurrency 必须在 1..%d 之间", MaxAuxiliaryConcurrency)
+	}
+	return nil
+}
+
 // File is what lands on disk.
 type File struct {
-	Model Model `json:"model"`
+	Model   Model   `json:"model"`
+	Runtime Runtime `json:"runtime,omitempty"`
 }
 
 // Store is the instance configuration: the harness profile plus the legacy
@@ -120,6 +144,58 @@ func (s *Store) Get() File {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.f
+}
+
+// RuntimeSettings is the effective instance runtime configuration. An absent or
+// non-positive value reads as the default of 1 (one auxiliary model call at a
+// time, the historic behaviour), and a value above the maximum is clamped to
+// MaxAuxiliaryConcurrency instead of being rejected, so a hand-edited file
+// cannot take the console down.
+func (s *Store) RuntimeSettings() Runtime {
+	s.mu.RLock()
+	rt := s.f.Runtime
+	s.mu.RUnlock()
+	if rt.AuxiliaryConcurrency <= 0 {
+		rt.AuxiliaryConcurrency = 1
+	}
+	if rt.AuxiliaryConcurrency > MaxAuxiliaryConcurrency {
+		rt.AuxiliaryConcurrency = MaxAuxiliaryConcurrency
+	}
+	return rt
+}
+
+// SetRuntime validates and persists the instance runtime knobs to the legacy
+// settings.json, preserving the model block. The harness file is deliberately
+// not touched: it is the model configuration, not the console's runtime state.
+// writeMu is shared with Save because both rewrite the same legacy file.
+func (s *Store) SetRuntime(rt Runtime) error {
+	if err := rt.Validate(); err != nil {
+		return err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.mu.RLock()
+	f := s.f
+	s.mu.RUnlock()
+	f.Runtime = rt
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.f = f
+	s.mu.Unlock()
+	return nil
 }
 
 // harnessModel reads the active profile, then falls back to the legacy file and
@@ -214,6 +290,13 @@ func (s *Store) Save(f File) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	// A caller that only edits the model (the usual console save) passes no
+	// Runtime: keep the stored one instead of wiping the operator's setting.
+	if f.Runtime.AuxiliaryConcurrency == 0 {
+		s.mu.RLock()
+		f.Runtime = s.f.Runtime
+		s.mu.RUnlock()
+	}
 	if s.harness != "" {
 		if err := writeHarnessModel(s.harness, f.Model); err != nil {
 			return err

@@ -21,9 +21,10 @@ import type {
 } from './types.ts'
 
 export interface AppendGoalDraft {
+  /** Operator-defined starting point: where the new goal begins. */
+  start: string
+  /** Operator-defined endpoint: the falsifiable state the test must reach. */
   statement: string
-  quantified_target: string
-  note: string
 }
 
 /** Machine pause kinds → console labels. Unknown codes stay visible, never
@@ -46,11 +47,7 @@ export function pauseKindLabel(kind?: string): string {
 
 /** Content identity of a draft, normalised the same way the server trims it. */
 export function appendGoalFingerprint(draft: AppendGoalDraft): string {
-  return JSON.stringify([
-    draft.statement.trim(),
-    draft.quantified_target.trim(),
-    draft.note.trim(),
-  ])
+  return JSON.stringify([draft.statement.trim(), draft.start.trim()])
 }
 
 export interface AppendGoalKey {
@@ -65,7 +62,7 @@ const pendingName = (project: string) => `tw:pending-goal:${project}`
 export function loadPendingAppend(storage: DraftStorage, project: string): PendingAppendGoal | null {
   try {
     const value = JSON.parse(storage.getItem(pendingName(project)) ?? 'null') as PendingAppendGoal | null
-    if (!value || typeof value.draft?.statement !== 'string' || typeof value.draft?.quantified_target !== 'string' || typeof value.draft?.note !== 'string' || typeof value.key?.key !== 'string') return null
+    if (!value || typeof value.draft?.statement !== 'string' || typeof value.draft?.start !== 'string' || typeof value.key?.key !== 'string') return null
     return value.key.fingerprint === appendGoalFingerprint(value.draft) ? value : null
   } catch { return null }
 }
@@ -98,16 +95,14 @@ export function randomAppendGoalKey(): string {
   return `ag_${Array.from(words, (n) => n.toString(16).padStart(8, '0')).join('')}`
 }
 
-/** Request body: empty optional fields are omitted, the statement is trimmed. */
+/** Request body: 终点 is required, 起点 is optional (empty is omitted). */
 export function appendGoalRequest(draft: AppendGoalDraft, key: string): AppendGoalRequest {
   const body: AppendGoalRequest = {
     statement: draft.statement.trim(),
     idempotency_key: key,
   }
-  const quantified = draft.quantified_target.trim()
-  if (quantified) body.quantified_target = quantified
-  const note = draft.note.trim()
-  if (note) body.note = note
+  const start = draft.start.trim()
+  if (start) body.start = start
   return body
 }
 
@@ -209,3 +204,4 @@ export function appendGoalOutcome(result: AppendGoalResult): AppendGoalOutcome {
     pauseKindAfter: result.pause_kind_after,
   }
 }
+

@@ -8,8 +8,12 @@
 // Keyboard: Left/Right move the roving focus and activate the neighbour (the
 // standard tablist behaviour); Home/End jump to the ends. Enter/Space are the
 // native button activation.
+//
+// Visual role: these are tertiary navigation under the page title. Active is a
+// raised surface (no red), so the accent stays available for the page CTA.
 
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { cn } from '@cyber/theme'
 
 export interface TabItem<T extends string = string> {
   id: T
@@ -70,7 +74,7 @@ export function TabBar<T extends string>({
       aria-label={ariaLabel}
       data-testid="view-tabs"
       onKeyDown={onKeyDown}
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/80 px-3 py-1.5 sm:px-4"
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline px-3 py-1.5 sm:px-5"
     >
       {tabs.map((item) => {
         const active = item.id === tab
@@ -83,11 +87,12 @@ export function TabBar<T extends string>({
             tabIndex={active ? 0 : -1}
             data-testid={`tab-${item.id}`}
             onClick={() => onTab(item.id)}
-            className={
+            className={cn(
+              'shrink-0 rounded-md px-2.5 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
               active
-                ? 'shrink-0 rounded-md bg-muted px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-                : 'shrink-0 rounded-md px-2.5 py-1 text-[12px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-            }
+                ? 'bg-surface-3 font-medium text-ink shadow-soft'
+                : 'text-ink-3 hover:bg-surface-2 hover:text-ink',
+            )}
           >
             {item.label}
           </button>

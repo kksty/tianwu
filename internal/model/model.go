@@ -597,8 +597,9 @@ type Evidence struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Goal is a statement the engagement must prove. QuantifiedTarget is a
-// free-text reminder ("all endpoints in scope tested"), never auto-scored.
+// Goal is an operator-defined endpoint: Start is where the work begins (the
+// known assets and what has already been proven), Statement is the falsifiable
+// end state. Both are prose, never scored by the program.
 //
 // met=true requires an evidence_id that resolves to a real evidence row: a
 // claim nobody can click through is not a finding (docs/03, iron rule 4).
@@ -612,12 +613,19 @@ type Goal struct {
 	CompletionPolicy  string            `json:"completion_policy,omitempty"`
 	ID                string            `json:"id"`
 	Statement         string            `json:"statement"`
+	// Start is the operator's starting point for this goal (what is known now).
+	// Empty on the goal created together with a project: there the project brief
+	// is the start, so repeating it would only duplicate the brief in prompts.
+	Start             string            `json:"start,omitempty"`
 	Met               bool              `json:"met"`
 	EvidenceID        string            `json:"evidence_id,omitempty"`
 	Note              string            `json:"note,omitempty"`
 	From              []string          `json:"from,omitempty"`
 	FromClaimVersions map[string]uint64 `json:"from_claim_versions,omitempty"`
 	CompletedAt       *time.Time        `json:"completed_at,omitempty"`
+	// QuantifiedTarget is the legacy quantified criterion written by older
+	// consoles. Operator-defined goals carry Start + Statement now; the field is
+	// kept so existing ledgers load and read exactly as before.
 	QuantifiedTarget  string            `json:"quantified_target,omitempty"`
 	CreatedAt         time.Time         `json:"created_at"`
 	// ReceiptStale/ReceiptChanged are computed, never persisted: they say that a

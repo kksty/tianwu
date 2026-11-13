@@ -20,7 +20,7 @@ import { ApiError } from '../src/lib/api.ts'
 import type { AppendGoalResult } from '../src/lib/types.ts'
 
 function draft(over: Partial<AppendGoalDraft> = {}): AppendGoalDraft {
-  return { statement: '证明后台存在未授权访问', quantified_target: '', note: '', ...over }
+  return { start: '', statement: '证明后台存在未授权访问', ...over }
 }
 
 test('a retry reuses the same idempotency key; editing the content makes a new one', () => {
@@ -33,24 +33,24 @@ test('a retry reuses the same idempotency key; editing the content makes a new o
   const retry = appendGoalKeyFor(first, draft({ statement: '  证明后台存在未授权访问  ' }), generate)
   assert.equal(retry.key, 'k1')
   assert.equal(generated, 1, 'a retry must not mint a new key')
-  // Editing the statement is a NEW goal; reusing the key would answer 409
+  // Editing the endpoint is a NEW goal; reusing the key would answer 409
   // goal_idempotency_conflict server-side.
   const edited = appendGoalKeyFor(retry, draft({ statement: '证明后台存在未授权访问（补充条件）' }), generate)
   assert.equal(edited.key, 'k2')
   assert.notEqual(edited.fingerprint, retry.fingerprint)
-  // The note is part of the submitted content too.
-  const noted = appendGoalKeyFor(edited, draft({ statement: '证明后台存在未授权访问（补充条件）', note: '新方向' }), generate)
-  assert.equal(noted.key, 'k3')
+  // The start point is part of the submitted content too.
+  const started = appendGoalKeyFor(edited, draft({ statement: '证明后台存在未授权访问（补充条件）', start: '已有测试账号' }), generate)
+  assert.equal(started.key, 'k3')
 })
 
-test('the request body is trimmed and omits empty optional fields', () => {
-  assert.deepEqual(appendGoalRequest(draft({ statement: '  目标  ', quantified_target: '  ', note: '   ' }), 'key-1'), {
-    statement: '目标',
+test('the request body is trimmed and omits an empty start', () => {
+  assert.deepEqual(appendGoalRequest(draft({ statement: '  终点  ', start: '   ' }), 'key-1'), {
+    statement: '终点',
     idempotency_key: 'key-1',
   })
   assert.deepEqual(
-    appendGoalRequest(draft({ statement: '目标', quantified_target: ' 1 条证据 ', note: '说明' }), 'key-1'),
-    { statement: '目标', quantified_target: '1 条证据', note: '说明', idempotency_key: 'key-1' },
+    appendGoalRequest(draft({ statement: '终点', start: ' 起点状态 ' }), 'key-1'),
+    { statement: '终点', start: '起点状态', idempotency_key: 'key-1' },
   )
   // Fingerprint follows the same normalisation.
   assert.equal(appendGoalFingerprint(draft({ statement: ' 目标 ' })), appendGoalFingerprint(draft({ statement: '目标' })))

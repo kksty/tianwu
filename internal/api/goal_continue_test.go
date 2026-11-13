@@ -115,10 +115,10 @@ func TestAppendGoalAndContinueResumesCompletionStandby(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"statement":         "追查新的外网入口",
-		"quantified_target": "至少一条可复核的新入口证据",
-		"idempotency_key":   "append-standby-1",
-		"note":              "客户追加范围",
+		"statement":       "追查新的外网入口",
+		"start":           "上一目标已收口：现有门户入口已确认",
+		"idempotency_key": "append-standby-1",
+		"note":            "客户追加范围",
 	}
 	rec := call(t, s, http.MethodPost, "/api/project/append-goal", body)
 	if rec.Code != http.StatusOK {
@@ -133,7 +133,7 @@ func TestAppendGoalAndContinueResumesCompletionStandby(t *testing.T) {
 		t.Fatalf("pause kinds = before %q / after %q (resumed_from %q)", out.PauseKindBefore, out.PauseKindAfter, out.ResumedFrom)
 	}
 	if out.Goal.ID == "" || out.Goal.Met || out.Goal.Statement != "追查新的外网入口" ||
-		out.Goal.QuantifiedTarget != "至少一条可复核的新入口证据" || out.Goal.IdempotencyKey != "append-standby-1" {
+		out.Goal.Start != "上一目标已收口：现有门户入口已确认" || out.Goal.IdempotencyKey != "append-standby-1" {
 		t.Fatalf("new goal = %+v", out.Goal)
 	}
 	if s.paused.Load() || dec.Paused() || p.IsPaused() {

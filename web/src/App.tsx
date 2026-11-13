@@ -16,28 +16,33 @@ const BOOT_TITLE = document.title
 
 /**
  * First paint while a shell chunk downloads: the frame the console is about to
- * have (208px rail, top bar, content), so nothing jumps when it swaps in.
+ * have (236px rail, top bar, content), so nothing jumps when it swaps in. The
+ * rhythm matches <Page> exactly — eyebrow, title, subtitle, actions.
  */
 function Boot() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden lg:flex-row" aria-busy="true">
-      <div className="flex h-14 shrink-0 items-center border-b border-border px-4 lg:hidden"><Skeleton className="h-6 w-24" /></div>
-      <aside className="tw-rail hidden w-[232px] shrink-0 flex-col border-r border-border lg:flex">
-        <div className="flex h-14 shrink-0 items-center border-b border-border px-3.5">
+      <div className="flex h-14 shrink-0 items-center border-b border-hairline bg-surface-1 px-4 lg:hidden"><Skeleton className="h-6 w-24" /></div>
+      <aside className="tw-rail hidden w-[236px] shrink-0 flex-col border-r border-hairline lg:flex">
+        <div className="flex h-14 shrink-0 items-center border-b border-hairline px-5">
           <Skeleton className="h-6 w-28" />
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden p-1.5">
+        <div className="min-h-0 flex-1 overflow-hidden p-3">
           <SkeletonList count={6} />
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="ml-auto h-7 w-24 shrink-0" />
+        <div className="tw-page-header flex shrink-0 items-start gap-3 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8">
+          <div className="space-y-2">
+            <Skeleton className="h-2.5 w-24" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-3 w-48 sm:w-72" />
+          </div>
+          <Skeleton className="ml-auto h-8 w-24 shrink-0" />
         </div>
-        <div className="min-h-0 flex-1 overflow-hidden px-5 py-3.5">
-          <div className="space-y-3">
-            <Skeleton className="h-24 rounded-lg" />
+        <div className="min-h-0 flex-1 overflow-hidden px-5 py-5 sm:px-6 lg:px-8">
+          <div className="space-y-4">
+            <Skeleton className="h-24 rounded-xl" />
             <SkeletonList count={5} />
           </div>
         </div>

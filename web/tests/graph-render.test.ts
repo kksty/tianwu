@@ -21,6 +21,7 @@ import {
   isNodeVisible,
   lod,
   viewportOf,
+  wrapText,
 } from '../src/graph/render.ts'
 import type { Box, EdgeCurve } from '../src/graph/render.ts'
 import type { GraphEdge, GraphNode } from '../src/graph/model.ts'
@@ -305,4 +306,39 @@ test('fitText caches measurements and still shortens long text', () => {
   assert.ok(fitted.endsWith('…'), 'long text is shortened')
   assert.ok(fitted.length < long.length)
   assert.ok(measured > afterShort, 'the first fit of a new string measures it')
+})
+
+// --- multi-line pill labels ----------------------------------------------
+
+test('wrapText keeps Latin words whole, breaks CJK, caps lines and ellipsises', () => {
+  // Width model: 7px per latin glyph, 12px per CJK glyph — enough to prove the
+  // break decisions without a real canvas.
+  const ctx = {
+    font: '600 12px "Inter",sans-serif',
+    measureText(text: string) {
+      let w = 0
+      for (const ch of text) w += /[\u0000-\u007f]/u.test(ch) ? 7 : 12
+      return { width: w }
+    },
+  }
+
+  const latin = wrapText(ctx, 'alpha beta gamma delta epsilon', 100, 3)
+  assert.ok(latin.length > 1 && latin.length <= 3, 'a long latin label wraps')
+  for (const line of latin) assert.ok(ctx.measureText(line).width <= 100, `"${line}" fits the box`)
+  assert.ok(latin.every((line) => !line.startsWith(' ')), 'no line starts with a space')
+
+  const cjk = wrapText(ctx, '首轮测绘目标主机全端口与站点指纹识别', 60, 3)
+  assert.ok(cjk.length > 1, 'CJK with no spaces still wraps')
+  for (const line of cjk) assert.ok(ctx.measureText(line).width <= 60, `"${line}" fits the box`)
+
+  // A single unbroken token (a URL / run id) is broken per character.
+  const id = wrapText(ctx, 'r_03f938be6983c2036be3639279e17e98', 70, 3)
+  assert.ok(id.length > 1)
+  for (const line of id) assert.ok(ctx.measureText(line).width <= 70)
+
+  const capped = wrapText(ctx, 'a'.repeat(200), 70, 2)
+  assert.equal(capped.length, 2, 'never more lines than the cap')
+  assert.ok(capped[1].endsWith('…'), 'the overflow is ellipsised, not dropped silently')
+
+  assert.deepEqual(wrapText(ctx, '   ', 50, 2), [''], 'blank labels stay one empty line')
 })

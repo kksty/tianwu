@@ -1,8 +1,21 @@
 import { useMemo } from 'react'
+import { BarChart3 } from 'lucide-react'
+import { EmptyState } from '@cyber/ui'
 import { fmtInt } from '@/lib/format'
 import type { FleetProject } from '@/lib/types'
 
-const COLORS = ['#ff4d4d', '#6aa9ff', '#39d98a', '#ffc457', '#b388ff', '#38bdf8', '#ff9f43', '#f2c94c']
+// A project's stack segment colour is a token, not a brand hue: the legend is
+// read as "which project", while the height carries the only number that matters.
+const COLORS = [
+  'var(--primary)',
+  'var(--info)',
+  'var(--success)',
+  'var(--warning)',
+  'var(--ai)',
+  'var(--caution)',
+  'var(--ink-2)',
+  'var(--ink-3)',
+]
 
 function colorFor(index: number): string {
   return COLORS[index % COLORS.length]
@@ -65,22 +78,25 @@ export function TokenHistory({
 
   if (total === 0) {
     return (
-      <div className="py-6 text-center text-[12px] text-muted-foreground">
-        这段时间没有已结束 run 的 token 记录（token 在 run 结束时才记账）。
-      </div>
+      <EmptyState
+        compact
+        icon={BarChart3}
+        title="这段时间没有 token 记录"
+        description="token 在 run 结算时才记账；等 run 结束或换更长的时间窗口后，这里会出现堆叠柱。"
+      />
     )
   }
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between text-[10px] text-muted-foreground">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[11px] text-ink-3">
         <span>按 run 结束时刻归集，堆叠 = 项目</span>
-        <span className="font-mono">
+        <span className="tw-nums font-mono">
           {fmtInt(total)} tok · {fmtInt(runs)} run · 峰值 {fmtInt(max)}
         </span>
       </div>
 
-      <div className="flex h-24 items-end gap-px border-b border-border/50">
+      <div className="flex h-24 items-end gap-px border-b border-hairline" role="img" aria-label="token 消耗历史柱状图">
         {buckets.map((bucket) => (
           <div
             key={bucket.at}
@@ -106,15 +122,15 @@ export function TokenHistory({
         ))}
       </div>
 
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{clock(start)}</span>
-        <span>{clock(end)}</span>
+      <div className="flex items-center justify-between font-mono text-[11px] text-ink-3">
+        <span className="tw-nums">{clock(start)}</span>
+        <span className="tw-nums">{clock(end)}</span>
       </div>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-3">
         {projects.map((project, index) => (
-          <span key={project.id} className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm" style={{ background: colorFor(index) }} />
+          <span key={project.id} className="flex min-w-0 items-center gap-1">
+            <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: colorFor(index) }} />
             <span className="max-w-[120px] truncate" title={project.name}>
               {project.name}
             </span>

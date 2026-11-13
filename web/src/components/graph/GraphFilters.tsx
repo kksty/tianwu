@@ -124,11 +124,44 @@ export function GraphFilters({
   const patch = (part: Partial<GraphFiltersState>) => onFiltersChange({ ...filters, ...part })
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 w-[228px]">
-      <div className="pointer-events-auto max-h-[calc(100vh-10rem)] overflow-y-auto rounded-lg border border-border bg-card/85 p-2.5 shadow-lifted backdrop-blur">
-        <div className="mb-2 flex gap-1 text-[11px]">
+    <div className="pointer-events-none absolute left-3 top-3 w-[232px]">
+      <div className="pointer-events-auto max-h-[calc(100vh-10rem)] overflow-y-auto rounded-xl border border-hairline bg-card/90 p-3 shadow-lifted backdrop-blur">
+        {/* One 12px toolbar: search first, then the retrieval mode, then the
+            drawing-only filters. Everything is the same face size so the card
+            reads as a control strip, not a form. */}
+        <div className="relative mb-2">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+          <Input
+            value={q}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="搜索节点"
+            aria-label="搜索节点"
+            className="h-8 border-hairline bg-surface-2/50 pl-8 text-[12px]"
+          />
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1">
+          {FACT_KINDS.map((k) => (
+            <Chip
+              key={k}
+              active={!filters.hiddenKinds.has(k)}
+              onClick={() => toggleKind(k)}
+              className="gap-1 px-2 py-0.5 text-[11px] leading-4"
+              title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
+            >
+              {k}
+              <span className="tw-nums font-mono text-[11px] opacity-60">{counts[k] ?? 0}</span>
+            </Chip>
+          ))}
+        </div>
+        {matchCount !== null && (
+          <div className="mb-1.5 text-[11px] text-ink-3">
+            命中 <span className="tw-nums font-mono font-semibold text-ink-2">{matchCount}</span> 个节点
+          </div>
+        )}
+
+        <div className="flex gap-1.5">
           <select
-            className="min-w-0 flex-1 rounded border border-border bg-card px-1"
+            className="h-8 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-2 text-[12px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
             value={searchMode}
             aria-label="检索模式"
             onChange={(e) => {
@@ -151,18 +184,18 @@ export function GraphFilters({
             </Button>
           )}
         </div>
-        {indexProgress && <div className="mb-1 text-[10px] text-muted-foreground">{indexProgress}</div>}
-        {searchError && <div className="mb-1 text-[10px] text-destructive">{searchError}</div>}
-        <div className="mb-2 flex items-center gap-1">
+        <div className="mt-1 flex items-center gap-1.5">
           <Button size="xs" variant="ghost" onClick={() => void searchGraph()} disabled={searchingGraph || !q.trim()}>
             全库检索
           </Button>
-          <span className="text-[10px] text-muted-foreground">边界节点可点击展开</span>
+          <span className="text-[11px] text-ink-3">边界节点可点击展开</span>
         </div>
+        {indexProgress && <div className="mt-1 text-[11px] text-ink-3">{indexProgress}</div>}
+        {searchError && <div className="mt-1 text-[11px] text-destructive">{searchError}</div>}
         {globalMatches.map((f) => (
           <button
             key={f.id}
-            className="mb-1 block w-full truncate text-left text-[11px] text-info"
+            className="mt-1 block w-full truncate rounded px-1.5 py-1 text-left text-[12px] text-info transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             onClick={() => {
               setGlobalMatches([])
               onQueryChange('')
@@ -177,41 +210,14 @@ export function GraphFilters({
             继续检索结果
           </Button>
         )}
-        <div className="relative mb-2">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={q}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="搜索节点"
-            aria-label="搜索节点"
-            className="h-7 pl-6 text-[12px]"
-          />
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {FACT_KINDS.map((k) => (
-            <Chip
-              key={k}
-              active={!filters.hiddenKinds.has(k)}
-              onClick={() => toggleKind(k)}
-              className="px-1.5 py-0 text-[11px]"
-              title={filters.hiddenKinds.has(k) ? `显示 ${k}` : `隐藏 ${k}`}
-            >
-              {k}
-              <span className="font-mono opacity-60">{counts[k] ?? 0}</span>
-            </Chip>
-          ))}
-        </div>
-        {matchCount !== null && (
-          <div className="mt-1.5 text-[11px] text-muted-foreground">命中 {matchCount} 个节点</div>
-        )}
 
         {/* Drawing-only filters. The ledger is never cut: these decide what the
             canvas draws (and therefore what the layout/hit-test sees). */}
-        <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">时间</span>
+        <div className="mt-2.5 space-y-2 border-t border-hairline pt-2.5">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] text-ink-3">时间</span>
             <select
-              className="min-w-0 flex-1 rounded border border-border bg-card px-1 text-[11px]"
+              className="h-7 min-w-0 flex-1 rounded-md border border-hairline bg-surface-2/50 px-1.5 text-[11px] text-ink-2 outline-none transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/35"
               value={filters.timeRange}
               aria-label="时间范围（按事实创建时间）"
               title="只按事实创建时间过滤；没有时间戳的事实视为「时间未知」而保留"
@@ -224,20 +230,24 @@ export function GraphFilters({
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 transition-colors hover:text-ink">
             <input
               type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
               checked={filters.hideDone}
               onChange={(e) => patch({ hideDone: e.target.checked })}
             />
             隐藏已完成分支
           </label>
           <label
-            className={`flex items-center gap-1.5 text-[11px] ${hasSelection ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}
+            className={`flex items-center gap-2 text-[12px] transition-colors ${
+              hasSelection ? 'cursor-pointer text-ink-2 hover:text-ink' : 'cursor-not-allowed text-ink-3/50'
+            }`}
             title={hasSelection ? '只画当前选中项的上下游链路' : '先选中一个节点，才能只看它的链路'}
           >
             <input
               type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
               checked={filters.focusOnly}
               disabled={!hasSelection}
               onChange={(e) => patch({ focusOnly: e.target.checked })}

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,6 +203,137 @@ func writeTestConfig(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The auxiliary concurrency gate is a runtime setting: it lives in the legacy
+// settings.json under runtime.auxiliary_concurrency, defaults to 1 (the
+// historic behaviour), survives a reload, and rejects values outside 1..8.
+// The harness file (cyber.yaml) is the model configuration and must not gain
+// the field.
+func TestRuntimeSettingsDefaultPersistAndValidate(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "settings.json")
+	harness := filepath.Join(dir, "cyber.yaml")
+	writeTestConfig(t, harness, "agent:\n    timeout: 60\n")
+
+	s, err := LoadAt(legacy, harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RuntimeSettings().AuxiliaryConcurrency; got != 1 {
+		t.Fatalf("default auxiliary_concurrency = %d, want 1", got)
+	}
+
+	if err := s.SetRuntime(Runtime{AuxiliaryConcurrency: 3}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Runtime struct {
+			AuxiliaryConcurrency int `json:"auxiliary_concurrency"`
+		} `json:"runtime"`
+	}
+	if err := json.Unmarshal(data, &file); err != nil {
+		t.Fatalf("settings.json is not JSON: %v\n%s", err, data)
+	}
+	if file.Runtime.AuxiliaryConcurrency != 3 {
+		t.Fatalf("persisted runtime.auxiliary_concurrency = %d, want 3\n%s",
+			file.Runtime.AuxiliaryConcurrency, data)
+	}
+	// The runtime knob never leaks into the harness's own file.
+	hdata, err := os.ReadFile(harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(hdata), "auxiliary_concurrency") {
+		t.Fatalf("harness file gained a runtime setting:\n%s", hdata)
+	}
+	if !strings.Contains(string(hdata), "timeout: 60") {
+		t.Fatalf("harness file was rewritten:\n%s", hdata)
+	}
+
+	// It survives a store reload (a process restart).
+	reloaded, err := LoadAt(legacy, harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.RuntimeSettings().AuxiliaryConcurrency; got != 3 {
+		t.Fatalf("reloaded auxiliary_concurrency = %d, want 3", got)
+	}
+
+	// Out-of-range values are rejected before anything is written.
+	for _, n := range []int{-1, 0, 9, 100} {
+		if err := s.SetRuntime(Runtime{AuxiliaryConcurrency: n}); err == nil {
+			t.Fatalf("SetRuntime(%d) was accepted", n)
+		}
+	}
+	if got := s.RuntimeSettings().AuxiliaryConcurrency; got != 3 {
+		t.Fatalf("rejected SetRuntime changed the value to %d", got)
+	}
+	again, err := LoadAt(legacy, harness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.RuntimeSettings().AuxiliaryConcurrency; got != 3 {
+		t.Fatalf("rejected SetRuntime reached disk: %d", got)
+	}
+}
+
+// A hand-edited file is clamped, never a crash: absent or non-positive reads as
+// 1 and a value above the maximum is clamped to it.
+func TestRuntimeSettingsClampsStoredValues(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "settings.json")
+	writeTestConfig(t, legacy, `{"model":{},"runtime":{"auxiliary_concurrency":99}}`)
+	s, err := LoadAt(legacy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RuntimeSettings().AuxiliaryConcurrency; got != MaxAuxiliaryConcurrency {
+		t.Fatalf("stored 99 read as %d, want %d", got, MaxAuxiliaryConcurrency)
+	}
+
+	writeTestConfig(t, legacy, `{"model":{}}`)
+	s, err = LoadAt(legacy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RuntimeSettings().AuxiliaryConcurrency; got != 1 {
+		t.Fatalf("absent runtime read as %d, want 1", got)
+	}
+}
+
+// A console model save passes no Runtime: Save must preserve the stored knob
+// instead of wiping it. An explicit Runtime (the runtime-settings path) wins.
+func TestSavePreservesRuntime(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "settings.json")
+	s, err := LoadAt(legacy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRuntime(Runtime{AuxiliaryConcurrency: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(File{Model: Model{BaseURL: "http://h:8080", APIKey: "k", Model: "m"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RuntimeSettings().AuxiliaryConcurrency; got != 5 {
+		t.Fatalf("model save wiped the runtime setting: %d", got)
+	}
+	reloaded, err := LoadAt(legacy, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.RuntimeSettings().AuxiliaryConcurrency; got != 5 {
+		t.Fatalf("runtime after reload = %d, want 5", got)
+	}
+	if m := reloaded.Get().Model; m.BaseURL != "http://h:8080" || m.APIKey != "k" || m.Model != "m" {
+		t.Fatalf("model save lost the model: %+v", m)
 	}
 }
 

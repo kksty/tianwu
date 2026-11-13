@@ -46,6 +46,12 @@ export interface GraphNode {
   /** Rendered half-width/half-height, set once the label is known. */
   w: number
   h: number
+  /**
+   * The pill label wrapped to its measured box (2–3 lines), set by the canvas's
+   * measure pass together with w/h. Absent on fact/ghost dots and on models that
+   * were never measured (tests): the painter then falls back to one fitted line.
+   */
+  labelLines?: string[]
   /** Hops from the project brief (project = 0). Set by buildGraph. */
   depth: number
   /** Claim count / attempts for a step; >1 means the direction was retried. */
@@ -410,7 +416,7 @@ export function buildGraph(
       id: `g:${g.id}`,
       type: 'goal',
       label: g.statement,
-      sub: g.quantified_target,
+      sub: g.start || g.quantified_target,
       status: 'met',
       x: 0,
       y: 0,

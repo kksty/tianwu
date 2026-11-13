@@ -99,12 +99,12 @@ export function RetryIntentDialog({
         disabled={disabled}
         onClick={onClick}
         className={
-          'w-full rounded-lg border px-3 py-2 text-left transition-colors ' +
+          'w-full rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
           (disabled
-            ? 'cursor-not-allowed border-border bg-muted/30 opacity-60'
+            ? 'cursor-not-allowed border-hairline bg-surface-2/50 opacity-50'
             : selected
-              ? 'border-primary bg-primary/10'
-              : 'border-border bg-card hover:border-primary/40')
+              ? 'border-primary/40 bg-primary/[0.07]'
+              : 'border-hairline bg-card hover:border-ink-3/40 hover:bg-surface-2/60')
         }
       >
         {body}
@@ -133,13 +133,13 @@ export function RetryIntentDialog({
 
           {data && (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-3">
                 <span>当前状态</span>
                 <Badge size="sm" variant="secondary">
                   {statusLabel(data.status)}
                 </Badge>
                 {data.resume_session && (
-                  <span className="font-mono" title="失败的那次 run 记录的 harness session">
+                  <span className="tw-break font-mono" title="失败的那次 run 记录的 harness session">
                     session {data.resume_session}
                   </span>
                 )}
@@ -150,7 +150,7 @@ export function RetryIntentDialog({
                 resumeDisabled,
                 () => setChoice('resume'),
                 <>
-                  <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+                  <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
                     续跑原会话
                     {!resumeDisabled && (
                       <Badge size="sm" variant="primary">
@@ -158,7 +158,7 @@ export function RetryIntentDialog({
                       </Badge>
                     )}
                   </div>
-                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
                     继续原 harness session：失败前的对话、工具结果与上下文都还在，适合“只差最后一步”的方向。
                   </div>
                   <div className="mt-1 font-mono text-[11px] text-info">
@@ -177,13 +177,13 @@ export function RetryIntentDialog({
                 !data,
                 () => setChoice('new'),
                 <>
-                  <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
+                  <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
                     重派新会话
                     <Badge size="sm" variant="outline">
                       干净重来
                     </Badge>
                   </div>
-                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                  <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-3">
                     丢弃该 run 的会话记忆，从同一条意图重新开始；适合会话已损坏、或想换一条路径的方向。
                   </div>
                   <div className="mt-1 font-mono text-[11px] text-warning">
@@ -204,7 +204,7 @@ export function RetryIntentDialog({
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="例如：上次卡在登录后重定向，这次从 /portal/login 登录口继续"
                   />
-                  <div className="text-right font-mono text-[10px] text-muted-foreground">{note.length}/500</div>
+                  <div className="text-right font-mono text-[11px] text-ink-3">{note.length}/500</div>
                 </div>
               </Field>
             </>

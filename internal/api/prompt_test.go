@@ -88,15 +88,28 @@ func TestBuildPromptSections(t *testing.T) {
 		}
 	}
 
-	// The worker brief must not carry the project's global goals (audit F12.3):
-	// the commander owns them; the worker's target is its own intent + Eval.
+	// The worker brief must not carry the operator-defined project goals (audit
+	// F12.3): the operator owns them and the worker's target is its own intent +
+	// Eval.
 	for _, unwanted := range []string{"拿到管理员权限", "vault fact", "## 目标"} {
 		if strings.Contains(p, unwanted) {
 			t.Errorf("worker brief leaked a global goal (%q):\n%s", unwanted, p)
 		}
 	}
-	if !strings.Contains(p, "全局目标与跨方向取舍由指挥官掌握") || !strings.Contains(p, "本轮的目标就是本意图及其「验收标准」") {
+	// The project endpoint goal is the operator's; the brief must say the model
+	// does not create, rewrite or append goals, and keep the worker's own
+	// target boundary (its own intent + Eval).
+	if !strings.Contains(p, "项目终点目标由操作员定义") || !strings.Contains(p, "你不创建、改写或追加目标") || !strings.Contains(p, "本轮的目标就是本意图及其「验收标准」") {
 		t.Errorf("brief does not state the worker's own target boundary:\n%s", p)
+	}
+
+	// The brief must not prescribe a penetration method or name a specific
+	// harness tool: the harness supplies tool guidance, the operator owns the
+	// method constraints.
+	for _, unwanted := range []string{"换入口、换工具", "neutron 模板"} {
+		if strings.Contains(p, unwanted) {
+			t.Errorf("prompt still prescribes method or names a harness tool (%q):\n%s", unwanted, p)
+		}
 	}
 
 	// The long contract moved into the skill (D23): the prompt keeps only the
@@ -193,7 +206,7 @@ func TestBuildPromptDefinesUsefulEvidence(t *testing.T) {
 	p := BuildPrompt(db, db.Intents[0], "10.0.0.0/24", "", "", 0, false)
 
 	for _, want := range []string{
-		"## 证据（进报告的原始材料）",
+		"## 证据（原始材料）",
 		"目标、请求/命令、响应/输出原文",
 		"脚本、说明和中间产物不算证据",
 		"它们跑出来的原始输出才算",
@@ -281,6 +294,9 @@ func TestBuildPromptLeavesToolUseToTheHarness(t *testing.T) {
 		"/dev/null",
 		"curl -o",
 		"neutron -u",
+		// The POC library pointer must stay vendor-neutral: the executor finds
+		// templates from the case path, not from a named harness tool.
+		"neutron 模板",
 	} {
 		if strings.Contains(low, unwanted) {
 			t.Errorf("prompt still teaches tool use: %q", unwanted)
@@ -449,10 +465,18 @@ func TestBuildPromptCarriesOwnLastFailure(t *testing.T) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}
 	}
+	// The history section is a record, not advice: the old line prescribed
+	// switching entry/tool/evidence on retry, which is the model's own call.
+	if !strings.Contains(p, "以上只是历史记录，不代表本轮必须怎么做") {
+		t.Fatalf("history section does not mark itself as non-prescriptive:\n%s", p)
+	}
+	if strings.Contains(p, "换入口、换工具") {
+		t.Fatalf("history section prescribes the next attempt:\n%s", p)
+	}
 }
 
-// The worker must not receive the project's global goals (audit F12.3): the
-// commander/decider owns them and the worker's target is its own intent + Eval.
+// The worker must not receive the operator-defined project goals (audit F12.3):
+// the operator owns them and the worker's target is its own intent + Eval.
 // This is a role boundary, not a size optimisation — a long prompt used to emit
 // only the first goal, and the old test pinned "every goal survives"; now no
 // goal survives, on purpose.
@@ -480,7 +504,7 @@ func TestBuildPromptDoesNotInjectGlobalGoals(t *testing.T) {
 		}
 	}
 	// The worker's own target and acceptance criterion must still be there.
-	for _, want := range []string{"本意图自己的验收标准", "全局目标与跨方向取舍由指挥官掌握", "本轮的目标就是本意图及其「验收标准」"} {
+	for _, want := range []string{"本意图自己的验收标准", "项目终点目标由操作员定义", "跨方向取舍由指挥官掌握", "本轮的目标就是本意图及其「验收标准」"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}

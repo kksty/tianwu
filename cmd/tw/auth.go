@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kksty/tianwu/internal/api"
 	"github.com/kksty/tianwu/internal/collab"
 )
 
@@ -354,7 +355,14 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 			if role == roleAgent {
 				instructionWrite := strings.Contains(r.URL.Path, "/api/instructions") && r.Method != http.MethodGet && !(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/ack"))
 				profileWrite := strings.HasSuffix(r.URL.Path, "/api/model-profiles") && r.Method != http.MethodGet
-				if agentRouteHidden(r.URL.Path) || instructionWrite || profileWrite || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
+				// Goals are operator-defined: sessions may read them (they judge
+				// completion) and close one with complete/reopen, but they cannot
+				// create or rewrite the endpoint. The operator's manual "met" pin
+				// is a separate write: it stamps a goal by hand without the
+				// ledger's citation rules, so it stays operator-only too.
+				goalWrite := strings.HasSuffix(r.URL.Path, "/api/goals") && r.Method != http.MethodGet
+				goalPin := strings.Contains(r.URL.Path, "/api/goals/") && strings.HasSuffix(r.URL.Path, "/met") && r.Method != http.MethodGet
+				if agentRouteHidden(r.URL.Path) || instructionWrite || profileWrite || goalWrite || goalPin || (strings.Contains(r.URL.Path, "/api/access") && r.Method != http.MethodGet) || (strings.Contains(r.URL.Path, "/api/playbooks/") && r.Method == http.MethodDelete) {
 					// Operator-only surfaces are absent for harness sessions, not
 					// merely forbidden: a 403 would confirm they exist, which is
 					// the learning the boundary prevents (D102/D109).
@@ -371,6 +379,11 @@ func (a *consoleAuth) wrap(next http.Handler) http.Handler {
 				// The header stays a claim about the speaker, not a second
 				// permission (D86); the surface boundary above is unchanged.
 				r.Header.Set("X-Tw-Actor", collab.CommanderID)
+				// The project mux has no per-run identity for the commander (it
+				// does not go through /agent/), so mark the request here: the API
+				// handlers use it to keep operator-side support runs and the
+				// review queue out of the session's view.
+				r = r.WithContext(api.WithAgentSurface(r.Context()))
 			}
 			next.ServeHTTP(w, r)
 			return

@@ -63,86 +63,134 @@ export interface PaintOptions {
   keyboardFocus?: string | null
 }
 
+// ---------------------------------------------------------------------------
+// Palette. The canvas paints the same dark console the DOM does, so its colours
+// are the app.css token values: canvas #0a0c10, surface #11151c, hairline
+// #1b2129, ink #e7eaf0/#a9b2c1/#788294, primary #f2554d, success #3dd68c,
+// warning #e5b53c, caution #f0883e, info #6cb6ff, ai #b388ff. `nodeColor` and
+// `edgeColor` stay the only place a colour is chosen, and the legend imports the
+// same tables instead of re-declaring hexes that drift from the brush.
+// ---------------------------------------------------------------------------
+export const CANVAS = {
+  background: '#0a0c10',
+  surface: '#11151c',
+  hairline: '#1b2129',
+  ink: '#e7eaf0',
+  ink2: '#a9b2c1',
+  ink3: '#788294',
+  primary: '#f2554d',
+  success: '#3dd68c',
+  warning: '#e5b53c',
+  caution: '#f0883e',
+  info: '#6cb6ff',
+  ai: '#b388ff',
+} as const
+
 // Red is one meaning only: the executor is running this intent right now
 // (solid edge + marching dashes + a travelling comet). A failed intent is not
-// executing anything, so it gets its own hue instead of borrowing the live red.
-const FACT_COLORS: Record<string, string> = {
-  vuln: '#ff4d4d',
-  cred: '#b388ff',
-  host: '#6aa9ff',
-  service: '#2dd4bf',
-  loot: '#ffc457',
-  artifact: '#ff9f43',
-  note: '#8b8b93',
+// executing anything, so it gets the ai hue instead of borrowing the live red.
+export const FACT_COLORS: Record<string, string> = {
+  vuln: CANVAS.primary,
+  cred: CANVAS.ai,
+  host: CANVAS.info,
+  service: CANVAS.success,
+  loot: CANVAS.warning,
+  artifact: CANVAS.caution,
+  note: CANVAS.ink3,
 }
 
-const INTENT_COLORS: Record<string, string> = {
-  running: '#ff4d4d',
-  claimed: '#ff9f43',
-  pending: '#f2c94c',
-  done: '#39d98a',
-  failed: '#e879f9',
-  parked: '#7b8494',
+export const INTENT_COLORS: Record<string, string> = {
+  running: CANVAS.primary,
+  claimed: CANVAS.caution,
+  pending: CANVAS.warning,
+  done: CANVAS.success,
+  failed: CANVAS.ai,
+  parked: CANVAS.ink3,
 }
 
-// Teal is the "reading choice" family: reference is a dashed teal line, pin is
-// the same hue as a solid double line so the operator never has to guess whether
-// a relation is a gate (blue premise) or context they asked to see.
-const PIN_COLOR = 'rgba(45,212,191,0.95)'
-const REFERENCE_COLOR = 'rgba(45,212,191,0.6)'
-const FOCUS_COLD_ALPHA = 0.18
-const FOCUS_HOT_RING = 'rgba(255,255,255,0.92)'
-const KEYBOARD_FOCUS_RING = 'rgba(56,189,248,0.95)'
-const REVIEW_RING = 'rgba(245,158,11,0.9)'
+// Green is the "reading choice" family: a reference is a dashed green line, a
+// pin is the same hue as a solid double line, so the operator never has to guess
+// whether a relation is a gate (blue premise) or context they asked to see.
+export const PIN_COLOR = 'rgba(61,214,140,0.95)'
+export const REFERENCE_COLOR = 'rgba(61,214,140,0.6)'
+export const FOCUS_COLD_ALPHA = 0.18
+export const FOCUS_HOT_RING = 'rgba(231,234,240,0.92)'
+export const KEYBOARD_FOCUS_RING = 'rgba(108,182,255,0.95)'
+export const REVIEW_RING = 'rgba(229,181,60,0.9)'
+export const MATCH_RING = 'rgba(242,85,77,0.7)'
+export const HOVER_RING = 'rgba(231,234,240,0.42)'
+
+/** The relation colours the legend has to explain, in one place. */
+export const EDGE_COLORS = {
+  produced: 'rgba(242,85,77,0.3)',
+  brief: 'rgba(120,130,148,0.5)',
+  host: 'rgba(120,130,148,0.35)',
+  goal: 'rgba(229,181,60,0.4)',
+  spawn: 'rgba(179,136,255,0.75)',
+  premise: 'rgba(108,182,255,0.9)',
+  reference: REFERENCE_COLOR,
+  pin: PIN_COLOR,
+  supports: 'rgba(229,181,60,0.55)',
+} as const
+
+/** Boundary leaves keep a glyph per reason they are not on the map. */
+export const BOUNDARY_COLORS = {
+  not_loaded: CANVAS.ink3,
+  missing: 'rgba(242,85,77,0.72)',
+  rejected: 'rgba(179,136,255,0.72)',
+} as const
+
+export const PROJECT_COLOR = CANVAS.ink3
+export const GOAL_COLORS = { met: CANVAS.success, open: CANVAS.warning } as const
 
 export function nodeColor(n: GraphNode): string {
-  if (n.type === 'ghost' || n.type === 'step') return INTENT_COLORS[n.status ?? ''] ?? '#9aa0aa'
-  if (n.type === 'project') return '#8b8b93'
-  if (n.type === 'intent') return INTENT_COLORS[n.status ?? ''] ?? '#9aa0aa'
-  if (n.type === 'goal') return n.status === 'met' ? '#39d98a' : '#ffd166'
+  if (n.type === 'ghost' || n.type === 'step') return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
+  if (n.type === 'project') return PROJECT_COLOR
+  if (n.type === 'intent') return INTENT_COLORS[n.status ?? ''] ?? CANVAS.ink3
+  if (n.type === 'goal') return n.status === 'met' ? GOAL_COLORS.met : GOAL_COLORS.open
   // A boundary leaf is not a fact: its colour says why it is not on the map.
   // not_loaded is expandable; missing is gone from the ledger; rejected exists
   // but was explicitly negated. The same grey for all three hid the difference.
   if (n.type === 'boundary') {
-    if (n.boundaryState === 'missing') return 'rgba(255,77,77,0.72)'
-    if (n.boundaryState === 'rejected') return 'rgba(232,121,249,0.72)'
-    return '#9aa0aa'
+    if (n.boundaryState === 'missing') return BOUNDARY_COLORS.missing
+    if (n.boundaryState === 'rejected') return BOUNDARY_COLORS.rejected
+    return BOUNDARY_COLORS.not_loaded
   }
-  return FACT_COLORS[n.kind ?? ''] ?? '#9aa0aa'
+  return FACT_COLORS[n.kind ?? ''] ?? CANVAS.ink3
 }
 
 // Tier rings are a second, quieter channel: status colour already means "what
 // is happening", so tier is a thin outer ring, not another fill.
 export const TIER_COLORS: Record<string, string> = {
-  worker: '#2dd4bf',
-  strong: '#f59e0b',
+  worker: CANVAS.success,
+  strong: CANVAS.warning,
 }
 
 function edgeColor(e: GraphEdge): string {
   const kind = e.kind
-  if (kind === 'intent') return INTENT_COLORS[e.status ?? ''] ?? '#9aa0aa'
+  if (kind === 'intent') return INTENT_COLORS[e.status ?? ''] ?? CANVAS.ink3
   switch (kind) {
     case 'brief':
-      return 'rgba(139,139,147,0.5)'
+      return EDGE_COLORS.brief
     case 'host':
-      return 'rgba(139,139,147,0.35)'
+      return EDGE_COLORS.host
     case 'goal':
-      return 'rgba(255,209,102,0.4)'
+      return EDGE_COLORS.goal
     case 'spawn':
-      return 'rgba(179,136,255,0.75)'
+      return EDGE_COLORS.spawn
     // Blue = a hard prerequisite; a reference must never borrow that colour.
     case 'premise':
-      return 'rgba(106,169,255,0.9)'
-    // Teal dashed = a reading choice (reference); teal solid double = a pin.
+      return EDGE_COLORS.premise
+    // Green dashed = a reading choice (reference); green solid double = a pin.
     case 'reference':
       return REFERENCE_COLOR
     case 'pin':
       return PIN_COLOR
     // Gold = a fact that backs an achieved goal's evidence.
     case 'supports':
-      return 'rgba(255,209,102,0.55)'
+      return EDGE_COLORS.supports
     default:
-      return 'rgba(255,77,77,0.3)'
+      return EDGE_COLORS.produced
   }
 }
 
@@ -610,7 +658,7 @@ function dotPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
       tile.height = BACKGROUND_GAP
       const tileCtx = tile.getContext('2d')
       if (tileCtx) {
-        tileCtx.fillStyle = 'rgba(255,255,255,0.035)'
+        tileCtx.fillStyle = 'rgba(169,178,193,0.10)'
         tileCtx.fillRect(0, 0, 1, 1)
         pattern = ctx.createPattern(tile, 'repeat')
       }
@@ -642,7 +690,7 @@ function paintBackground(
     return
   }
   // No DOM (node tests never paint; this is for exotic 2d implementations).
-  ctx.fillStyle = 'rgba(255,255,255,0.035)'
+  ctx.fillStyle = 'rgba(169,178,193,0.10)'
   for (let x = ox; x < width; x += BACKGROUND_GAP) {
     for (let y = oy; y < height; y += BACKGROUND_GAP) {
       ctx.fillRect(x, y, 1, 1)
@@ -712,6 +760,87 @@ export function fitText(ctx: CanvasRenderingContext2D, text: string, maxW: numbe
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Multi-line pill labels. A pill is read, not skimmed: a 300px single line of
+// CJK forces the reader to pan, and it pushes the chain-tree columns apart. Two
+// to three wrapped lines keep the same text in a quarter of the horizontal
+// footprint. The layout already derives row heights from node h and column
+// widths from node w (sim.placeLayered), so the wrapped box feeds straight back
+// into placement without a second layout pass.
+// ---------------------------------------------------------------------------
+
+/** Text width a pill may use; the box adds the horizontal padding on top. */
+export const PILL_TEXT_W = 232
+/** A box never shows more than this many title lines (then it ellipsises). */
+export const PILL_MAX_LINES = 3
+
+const WRAP_BREAK_BEFORE = /[，。；：、！？）】」』》]/u
+
+/**
+ * Wrap `text` to `maxW`, breaking Latin words at spaces and CJK at any
+ * character. Returns at most `maxLines`; the last line is ellipsised with
+ * {@link fitText} so no text is silently dropped.
+ */
+export function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxW: number,
+  maxLines: number,
+): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return ['']
+  if (ctx.measureText(trimmed).width <= maxW) return [trimmed]
+
+  // Tokens: keep Latin words together, CJK characters on their own, and
+  // punctuation attached to the preceding character so a line never starts
+  // with a comma or a closing bracket.
+  const tokens = trimmed.match(/[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]|[^\s\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+|\s+/gu) ?? [trimmed]
+  const lines: string[] = []
+  let line = ''
+  const flush = () => {
+    if (line.trim()) lines.push(line.trim())
+    line = ''
+  }
+  const pushChars = (token: string) => {
+    // A single token wider than the line (a long URL, a run id): break it by
+    // character instead of overflowing the pill.
+    for (const ch of token) {
+      if (line && ctx.measureText(line + ch).width > maxW) flush()
+      line += ch
+    }
+  }
+  for (const token of tokens) {
+    if (/^\s+$/u.test(token)) {
+      if (line) line += ' '
+      continue
+    }
+    if (ctx.measureText(line + token).width <= maxW) {
+      line += token
+      continue
+    }
+    if (ctx.measureText(token).width > maxW) {
+      if (line) flush()
+      pushChars(token)
+      continue
+    }
+    if (WRAP_BREAK_BEFORE.test(token)) {
+      // Hang closing punctuation off the previous line when it still fits.
+      if (line && ctx.measureText(line + token).width <= maxW) {
+        line += token
+        continue
+      }
+    }
+    flush()
+    line = token
+  }
+  flush()
+
+  if (lines.length <= maxLines) return lines
+  const kept = lines.slice(0, maxLines)
+  kept[maxLines - 1] = fitText(ctx, lines.slice(maxLines - 1).join(''), maxW)
+  return kept
+}
+
 export function paint(o: PaintOptions) {
   const { ctx, width, height, dpr, cam, nodes, edges, byId } = o
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -768,12 +897,12 @@ export function paint(o: PaintOptions) {
     })
     for (const [i, lane] of lanes.entries()) {
       if (lane.right < vp.x0 || lane.left > vp.x1) continue
-      ctx.globalAlpha = i % 2 === 0 ? 0.03 : 0.015
-      ctx.fillStyle = '#ffffff'
+      ctx.globalAlpha = i % 2 === 0 ? 0.5 : 0.22
+      ctx.fillStyle = CANVAS.surface
       ctx.fillRect(lane.left, top, lane.right - lane.left, bottom - top)
       if (i < lanes.length - 1) {
-        ctx.globalAlpha = 0.18
-        ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+        ctx.globalAlpha = 0.5
+        ctx.strokeStyle = 'rgba(120,130,148,0.4)'
         ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
         ctx.setLineDash([2 / cam.k, 8 / cam.k])
         ctx.beginPath()
@@ -817,16 +946,19 @@ export function paint(o: PaintOptions) {
     ctx.font = `${11}px "JetBrains Mono","Cascadia Code",monospace`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    const text = clip(n.label, 26)
+    // The pointer asks for the name: give hover/selection more of the title
+    // before it is ellipsised. Background labels stay short so they do not
+    // crowd the map.
+    const text = clip(n.label, exempt ? 60 : 26)
     const w = ctx.measureText(text).width
     const box = { x1: n.x + r + 2, y1: n.y - 10, x2: n.x + r + 2 + w + 8, y2: n.y + 10 }
     if (!exempt && boxes.overlaps(box, 2)) return
     if (!takeLabel(exempt)) return
     boxes.insert(box)
     ctx.globalAlpha = alpha * 0.92
-    ctx.fillStyle = 'rgba(10,10,11,0.72)'
+    ctx.fillStyle = 'rgba(10,12,16,0.75)'
     ctx.fillRect(n.x + r + 4, n.y - 8, w + 6, 16)
-    ctx.fillStyle = 'rgba(233,233,238,0.92)'
+    ctx.fillStyle = 'rgba(231,234,240,0.92)'
     ctx.fillText(text, n.x + r + 7, n.y + 0.5)
   }
 
@@ -1052,7 +1184,9 @@ export function paint(o: PaintOptions) {
     const isMatch = o.matches?.has(n.id) === true
     const running = n.status === 'running'
     if (!isSel && !isHover && !isMatch && !running && !level.stepLabels) continue
-    const text = fitText(ctx, n.label, 190)
+    // Hover/selection is the operator asking to read the direction: use the
+    // wider label budget before ellipsising.
+    const text = fitText(ctx, n.label, isSel || isHover ? 260 : 190)
     floaters.push({
       lx: n.x,
       ly: n.y + 20,
@@ -1073,7 +1207,7 @@ export function paint(o: PaintOptions) {
       const isHover = n.id === o.hovered
       const isMatch = o.matches?.has(n.id) === true
       if (!isSel && !isHover && !isMatch && n.id !== o.keyboardFocus) continue
-      const text = fitText(ctx, n.label, 190)
+      const text = fitText(ctx, n.label, isSel || isHover ? 260 : 190)
       floaters.push({
         lx: n.x,
         ly: n.y + Math.max(n.h, radiusOf(n)) + 14,
@@ -1111,7 +1245,7 @@ export function paint(o: PaintOptions) {
     if (!takeLabel(label.exempt)) continue
     boxes.insert(box)
     ctx.globalAlpha = label.alpha
-    ctx.fillStyle = 'rgba(12,12,15,0.88)'
+    ctx.fillStyle = 'rgba(17,21,28,0.92)'
     ctx.fillRect(lx - width / 2, ly - 9, width, 18)
     ctx.strokeStyle = label.color
     ctx.lineWidth = 0.8 / Math.max(cam.k, 0.5)
@@ -1149,8 +1283,8 @@ export function paint(o: PaintOptions) {
         ctx.strokeStyle = keyboard
           ? KEYBOARD_FOCUS_RING
           : isMatch
-            ? 'rgba(255,77,77,0.9)'
-            : 'rgba(255,255,255,0.7)'
+            ? 'rgba(242,85,77,0.9)'
+            : 'rgba(231,234,240,0.7)'
         ctx.lineWidth = 1.4 / Math.max(cam.k, 0.5)
         ctx.stroke()
       }
@@ -1182,7 +1316,7 @@ export function paint(o: PaintOptions) {
       const r = 7
       ctx.beginPath()
       roundRect(ctx, x, y, w, h, r)
-      ctx.fillStyle = 'rgba(18,18,21,0.92)'
+      ctx.fillStyle = 'rgba(17,21,28,0.92)'
       ctx.fill()
       ctx.lineWidth = (isSel ? 2.4 : 1.4) / cam.k
       ctx.strokeStyle = color
@@ -1218,18 +1352,28 @@ export function paint(o: PaintOptions) {
 
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      if (n.type === 'step' && n.model) {
-        // Two lines: the intent title and the model that ran it.
-        ctx.font = `600 11.5px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-        ctx.fillStyle = color
-        ctx.fillText(fitText(ctx, n.label, w - 16), n.x, n.y - 6)
-        ctx.font = `500 10px "JetBrains Mono","Cascadia Code",monospace`
-        ctx.fillStyle = 'rgba(233,233,238,0.68)'
-        ctx.fillText(fitText(ctx, n.model, w - 16), n.x, n.y + 10)
-      } else {
-        ctx.font = `600 ${n.type === 'step' ? 11.5 : 12}px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
-        ctx.fillStyle = color
-        ctx.fillText(fitText(ctx, n.label, w - 14), n.x, n.y + 0.5)
+      // The label is pre-wrapped by measureNodes; a node measured before the
+      // wrap pass existed (tests, a stale model) still renders one ellipsised
+      // line instead of nothing.
+      const lines =
+        n.labelLines && n.labelLines.length > 0
+          ? n.labelLines
+          : [fitText(ctx, n.label, w - 16)]
+      const hasModel = n.type === 'step' && Boolean(n.model)
+      const titleLineH = 16
+      const modelLineH = 15
+      const blockH = lines.length * titleLineH + (hasModel ? modelLineH : 0)
+      let ty = n.y - blockH / 2 + titleLineH / 2
+      ctx.font = `600 12px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+      ctx.fillStyle = color
+      for (const line of lines) {
+        ctx.fillText(line, n.x, ty)
+        ty += titleLineH
+      }
+      if (hasModel) {
+        ctx.font = `500 11px "JetBrains Mono","Cascadia Code",monospace`
+        ctx.fillStyle = 'rgba(169,178,193,0.7)'
+        ctx.fillText(fitText(ctx, n.model!, w - 16), n.x, ty)
       }
     } else if (n.type === 'step') {
       const r = 7 * entry
@@ -1239,7 +1383,7 @@ export function paint(o: PaintOptions) {
       ctx.rotate(Math.PI / 4)
       ctx.beginPath()
       ctx.rect(-r * 0.72, -r * 0.72, r * 1.44, r * 1.44)
-      ctx.fillStyle = 'rgba(18,18,21,0.95)'
+      ctx.fillStyle = 'rgba(17,21,28,0.95)'
       ctx.fill()
       ctx.strokeStyle = color
       ctx.lineWidth = (isSel ? 2.2 : 1.5) / cam.k
@@ -1299,7 +1443,7 @@ export function paint(o: PaintOptions) {
       ctx.fillStyle = color
       ctx.fill()
       ctx.lineWidth = (isSel ? 2 : 1) / cam.k
-      ctx.strokeStyle = isSel ? '#ffffff' : 'rgba(0,0,0,0.45)'
+      ctx.strokeStyle = isSel ? CANVAS.ink : 'rgba(10,12,16,0.6)'
       ctx.stroke()
       // needs_review: the claim asserted a version newer than the last review.
       // A dashed outer ring says "read this before trusting it" without touching
@@ -1319,7 +1463,7 @@ export function paint(o: PaintOptions) {
         ctx.beginPath()
         ctx.moveTo(n.x - r * 0.6, n.y - r * 0.6)
         ctx.lineTo(n.x + r * 0.6, n.y + r * 0.6)
-        ctx.strokeStyle = '#0a0a0b'
+        ctx.strokeStyle = CANVAS.background
         ctx.lineWidth = 1.6 / cam.k
         ctx.stroke()
       }
@@ -1338,13 +1482,13 @@ export function paint(o: PaintOptions) {
         const by = n.y - hh - 1
         ctx.beginPath()
         ctx.arc(bx, by, 6, 0, TAU)
-        ctx.fillStyle = 'rgba(56,189,248,0.92)'
+        ctx.fillStyle = 'rgba(108,182,255,0.92)'
         ctx.fill()
         ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
-        ctx.strokeStyle = 'rgba(10,10,11,0.9)'
+        ctx.strokeStyle = 'rgba(10,12,16,0.9)'
         ctx.stroke()
-        ctx.fillStyle = '#0a0a0b'
-        ctx.font = `700 8px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+        ctx.fillStyle = CANVAS.background
+        ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(`×${Math.min(n.attempts, 99)}`, bx, by + 0.5)
@@ -1363,7 +1507,7 @@ export function paint(o: PaintOptions) {
         ctx.setLineDash([])
         if (o.layered || cam.k > 1.05 || isSel || isHover) {
           ctx.fillStyle = color
-          ctx.font = `600 9px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+          ctx.font = `600 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'bottom'
           ctx.fillText('续跑', n.x, top - 1)
@@ -1408,7 +1552,7 @@ export function paint(o: PaintOptions) {
         // Facts, ghosts and boundary leaves: a thin ring one pad outside the dot.
         ctx.arc(n.x, n.y, radiusOf(n) + pad, 0, TAU)
       }
-      ctx.strokeStyle = isMatch ? 'rgba(255,77,77,0.7)' : 'rgba(255,255,255,0.42)'
+      ctx.strokeStyle = isMatch ? MATCH_RING : HOVER_RING
       ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
       ctx.stroke()
     }
@@ -1473,13 +1617,13 @@ export function paint(o: PaintOptions) {
     ctx.globalAlpha = alpha
     ctx.beginPath()
     ctx.arc(bx, by, 6, 0, TAU)
-    ctx.fillStyle = '#f59e0b'
+    ctx.fillStyle = CANVAS.warning
     ctx.fill()
     ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
-    ctx.strokeStyle = 'rgba(10,10,11,0.9)'
+    ctx.strokeStyle = 'rgba(10,12,16,0.9)'
     ctx.stroke()
-    ctx.fillStyle = '#0a0a0b'
-    ctx.font = `700 8.5px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+    ctx.fillStyle = CANVAS.background
+    ctx.font = `700 10px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(count > 9 ? '9+' : String(count), bx, by + 0.5)
@@ -1493,7 +1637,7 @@ export function paint(o: PaintOptions) {
   // DOM filter card (left) and the view controls (right); a label that would sit
   // under one of them is dropped instead of peeking out from behind it.
   if (o.layered && o.bands.length > 0) {
-    ctx.font = `600 10.5px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
+    ctx.font = `600 11px "Inter","PingFang SC","Microsoft YaHei",sans-serif`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     const left = 252
@@ -1502,7 +1646,7 @@ export function paint(o: PaintOptions) {
       if (band.x2 < vp.x0 || band.x1 > vp.x1) continue
       const sx = cam.x + ((band.x1 + band.x2) / 2) * cam.k
       if (sx < left || sx > right) continue
-      ctx.fillStyle = 'rgba(233,233,238,0.55)'
+      ctx.fillStyle = 'rgba(169,178,193,0.6)'
       ctx.fillText(depthLabel(band.depth), sx, 8)
     }
   }
@@ -1532,7 +1676,7 @@ function drawComet(
     const p = at(t)
     ctx.beginPath()
     ctx.arc(p.x, p.y, r * (0.3 + (4 - i) * 0.12), 0, TAU)
-    ctx.fillStyle = 'rgba(255,255,255,0.92)'
+    ctx.fillStyle = 'rgba(231,234,240,0.92)'
     ctx.globalAlpha = i === 0 ? 0.95 : 0.18 + (4 - i) * 0.1
     ctx.fill()
   }

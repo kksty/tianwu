@@ -32,6 +32,10 @@ import { fmtBytes, fmtTime, shortID } from '@/lib/format'
  * content goes into a <pre> as text, images/pdf are handed to the browser's own
  * viewer, and inline HTML evidence shows as source — a preview must not execute
  * the target's script in the console origin.
+ *
+ * Layout: a fixed header (name / uri / type · size · time, size and time in
+ * mono) over a body that owns the scroll, so the file identity never scrolls
+ * away from the content it labels.
  */
 export function EvidencePreview({
   file,
@@ -42,7 +46,7 @@ export function EvidencePreview({
 }) {
   return (
     <Sheet open={!!file} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-3 sm:max-w-3xl">
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-3xl">
         {file && <PreviewBody file={file} />}
       </SheetContent>
     </Sheet>
@@ -127,26 +131,52 @@ function PreviewBody({ file }: { file: PreviewFile }) {
 
   return (
     <>
-      <SheetHeader className="shrink-0 space-y-1 pr-8 text-left">
-        <div className="flex items-start gap-2">
-          <SheetTitle className="tw-break min-w-0 flex-1 font-mono text-ui">{file.name}</SheetTitle>
-          <Button asChild size="xs" variant="soft" className="shrink-0">
-            <a href={file.downloadURL} download={file.name || true}>
+      <SheetHeader className="shrink-0 space-y-2 border-b border-hairline px-5 py-4 pr-12 text-left">
+        <div className="tw-eyebrow">证据预览</div>
+        <div className="flex items-start gap-3">
+          <SheetTitle className="tw-break min-w-0 flex-1 font-mono text-[15px] leading-6 text-ink">
+            {file.name}
+          </SheetTitle>
+          <Button asChild size="xs" variant="outline" className="shrink-0">
+            <a href={file.downloadURL} download={file.name || true} title="下载原文件">
               <Download className="h-3 w-3" /> 下载
             </a>
           </Button>
         </div>
-        <div className="tw-break font-mono text-[11px] text-muted-foreground">{file.uri}</div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-muted-foreground">
-          <span>{mime || '未知类型'}</span>
-          {size !== undefined && <span>{fmtBytes(size)}</span>}
-          {file.createdAt && <span>{fmtTime(file.createdAt)}</span>}
-          {file.intentID && <span>意图 {shortID(file.intentID)}</span>}
-          {file.runID && <span>run {shortID(file.runID)}</span>}
-        </div>
+        <div className="tw-break font-mono text-[11px] leading-4 text-ink-3">{file.uri}</div>
+        <dl className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] leading-4 text-ink-3">
+          <div className="flex items-center gap-1">
+            <dt className="sr-only">类型</dt>
+            <dd className="tw-break">{mime || '未知类型'}</dd>
+          </div>
+          {size !== undefined && (
+            <div className="flex items-center gap-1">
+              <dt className="sr-only">大小</dt>
+              <dd className="tw-nums">{fmtBytes(size)}</dd>
+            </div>
+          )}
+          {file.createdAt && (
+            <div className="flex items-center gap-1">
+              <dt className="sr-only">时间</dt>
+              <dd className="tw-nums">{fmtTime(file.createdAt)}</dd>
+            </div>
+          )}
+          {file.intentID && (
+            <div className="flex items-center gap-1">
+              <dt>意图</dt>
+              <dd className="truncate">{shortID(file.intentID)}</dd>
+            </div>
+          )}
+          {file.runID && (
+            <div className="flex items-center gap-1">
+              <dt>run</dt>
+              <dd className="truncate">{shortID(file.runID)}</dd>
+            </div>
+          )}
+        </dl>
       </SheetHeader>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden p-4">
         {preview.state === 'loading' && <SkeletonList count={8} />}
 
         {preview.state === 'error' && (
@@ -167,7 +197,7 @@ function PreviewBody({ file }: { file: PreviewFile }) {
         )}
 
         {preview.state === 'image' && (
-          <div className="flex h-full items-center justify-center overflow-auto rounded-md border border-border bg-muted/20 p-2">
+          <div className="tw-inset flex h-full min-h-[240px] items-center justify-center overflow-auto rounded-lg p-2">
             <img
               src={file.contentURL}
               alt={file.name || file.uri}
@@ -183,24 +213,24 @@ function PreviewBody({ file }: { file: PreviewFile }) {
           <iframe
             title={file.name || file.uri}
             src={file.contentURL}
-            className="h-full min-h-[60vh] w-full rounded-md border border-border bg-muted/20"
+            className="tw-inset h-full min-h-[60vh] w-full rounded-lg"
           />
         )}
 
         {preview.state === 'text' && (
-          <div className="flex h-full flex-col gap-2">
+          <>
             {preview.truncated && (
               <Callout tone="info" className="shrink-0">
                 只预览前 {fmtBytes(EVIDENCE_PREVIEW_BYTES)}
                 {size !== undefined ? `（共 ${fmtBytes(size)}）` : ''}；完整内容请下载原文件。
               </Callout>
             )}
-            <ScrollArea className="min-h-0 flex-1 rounded-md border border-border bg-muted/20">
-              <pre className="tw-mono tw-break whitespace-pre-wrap p-3 text-[12px] leading-relaxed text-foreground/90">
+            <ScrollArea className="tw-inset min-h-0 flex-1 rounded-lg">
+              <pre className="tw-mono tw-break whitespace-pre-wrap p-3 text-[12px] leading-relaxed text-ink-2">
                 {preview.text || '（空文件）'}
               </pre>
             </ScrollArea>
-          </div>
+          </>
         )}
       </div>
     </>

@@ -72,7 +72,7 @@ func (s *Server) collaborationSection(self model.Intent) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n\n## 自主协作（不必经过指挥官）\n")
-	b.WriteString("协作是手段不是流程：先在事实与同伴里找已有结论，能独立完成就直接做；需要并行、独立复核或共享现场时，直接给同伴发消息或在当前方向下派子任务，不必先请示。不要为凑层级拆任务，也不要重复别人的方向；共享现场/账号冲突先协调。是否协作、何时委派及选哪档模型由你判断。\n")
+	b.WriteString("协作是手段不是流程：先在事实与同伴里找已有结论，能独立完成就直接做；需要并行、独立验证或共享现场时，直接给同伴发消息或在当前方向下派子任务，不必先请示。不要为凑层级拆任务，也不要重复别人的方向；共享现场/账号冲突先协调。是否协作、何时委派及选哪档模型由你判断。\n")
 	if len(peers) > 0 {
 		b.WriteString("- 同伴：" + strings.Join(peers, "；") + "\n")
 	}

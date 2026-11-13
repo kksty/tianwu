@@ -133,6 +133,7 @@ type GraphNote struct {
 type GraphGoal struct {
 	ID         string `json:"id"`
 	Statement  string `json:"statement"`
+	Start      string `json:"start,omitempty"`
 	Quantified string `json:"quantified_target,omitempty"`
 	Met        bool   `json:"met"`
 }
@@ -200,6 +201,7 @@ func buildGraph(db store.DB, scope string, now time.Time, factsBudget, notesBudg
 		g.Goals = append(g.Goals, GraphGoal{
 			ID:         goal.ID,
 			Statement:  graphClip(goal.Statement, graphDescRunes),
+			Start:      graphClip(goal.Start, graphDescRunes),
 			Quantified: graphClip(goal.QuantifiedTarget, graphDescRunes),
 			Met:        goal.Met,
 		})

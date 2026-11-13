@@ -6,12 +6,16 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 )
 
-// F4: the strict check and the actual input freeze must be one decision. The
-// run records which policy its frozen input was admitted under, and the newest
-// policy cannot retroactively rewrite that record.
+// F4: the verified_only check and the actual input freeze must be one decision.
+// The run records which policy its frozen input was admitted under, and the
+// newest policy cannot retroactively rewrite that record.
 func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	s := open(t)
-	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: "premise"})
+	e, err := s.AddEvidence(model.Evidence{URI: "proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: "premise", EvidenceIDs: []string{e.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +29,8 @@ func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	}
 	// The unverified premise is refused by the freeze transaction itself, not
 	// only by an earlier API-side check.
-	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseStrict); err == nil {
-		t.Fatal("strict freeze accepted an unverified vuln premise")
+	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly); err == nil {
+		t.Fatal("verified_only freeze accepted an unverified vuln premise")
 	}
 	// Standard mode admits it and records the policy that actually applied.
 	frozen, err := s.PrepareRunInput(run.ID, in, model.PremiseStandard)
@@ -45,12 +49,13 @@ func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 		t.Fatalf("audit record changed with the caller: %q", again.PremisePolicy)
 	}
 
-	// Once the claim is reviewed, a new run can be admitted under strict and
-	// records that too — the two rows stay distinguishable.
-	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass"}); err != nil {
+	// Once the current claim carries a proof receipt, a new run can be admitted
+	// under verified_only and records that too — the two rows stay
+	// distinguishable.
+	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-1"}); err != nil {
 		t.Fatal(err)
 	}
-	in2, err := s.CreateIntent(model.Intent{Title: "strict child", FromFactIDs: []string{f.ID}})
+	in2, err := s.CreateIntent(model.Intent{Title: "verified_only child", FromFactIDs: []string{f.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,12 +63,12 @@ func TestPremisePolicyIsFrozenWithTheInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseStrict); err != nil {
+	if _, err := s.PrepareRunInput(run2.ID, in2, model.PremiseVerifiedOnly); err != nil {
 		t.Fatal(err)
 	}
 	saved2, _ := s.GetRun(run2.ID)
-	if saved2.PremisePolicy != "strict" {
-		t.Fatalf("strict run policy = %q", saved2.PremisePolicy)
+	if saved2.PremisePolicy != "verified_only" {
+		t.Fatalf("verified_only run policy = %q", saved2.PremisePolicy)
 	}
 	if saved.PremisePolicy == saved2.PremisePolicy {
 		t.Fatal("the two admissions collapsed into one policy record")

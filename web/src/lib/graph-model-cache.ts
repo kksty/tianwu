@@ -120,6 +120,7 @@ function goalSignature(g: Goal): string {
     g.note ?? '',
     g.evidence_id ?? '',
     g.from ?? [],
+    g.start ?? '',
     g.quantified_target ?? '',
     g.completed_at ?? '',
     g.created_at,

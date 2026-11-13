@@ -20,9 +20,20 @@ func (s *Server) runOutput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "run not found")
 		return
 	}
-	if identity, agent := identityOf(r); agent && identity.IntentID != run.IntentID {
-		writeErr(w, 403, "只能读取自己方向的工具输出；其他方向通过事实证据引用读取")
-		return
+	if harnessSession(r) {
+		// Report/verification runs are operator-side; a session must not be able
+		// to read their output even with a guessed id.
+		if supportPurpose(run.Purpose) {
+			writeErr(w, 404, "run not found")
+			return
+		}
+		// Only a participant has a direction to compare: the commander's marked
+		// project-mux credential carries no per-run identity and may read any
+		// direction's output, as before.
+		if identity, ok := identityOf(r); ok && identity.IntentID != run.IntentID {
+			writeErr(w, 403, "只能读取自己方向的工具输出；其他方向通过事实证据引用读取")
+			return
+		}
 	}
 	call := r.URL.Query().Get("call_id")
 	if call == "" {

@@ -23,9 +23,9 @@ export function ExecutionEnv({
   onTab: (tab: RuntimeTab) => void
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={RUNTIME_TABS} tab={tab} onTab={onTab} ariaLabel="执行环境" />
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {tab === 'nodes' ? (
           <Nodes />
         ) : tab === 'terminal' ? (

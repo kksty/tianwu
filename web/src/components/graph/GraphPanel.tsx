@@ -11,7 +11,7 @@
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Download, Plus, RefreshCw } from 'lucide-react'
-import { Button } from '@cyber/ui'
+import { Button, EmptyState, buttonVariants } from '@cyber/ui'
 import { CommanderCard } from '@/components/CommanderCard'
 import { CreateChildIntentDialog } from '@/components/CreateChildIntentDialog'
 import { GraphCanvas, type GraphControls } from '@/components/GraphCanvas'
@@ -345,8 +345,10 @@ export function GraphPanel({
       subtitle={
         <>
           {projectName ?? current}
-          <span className="mx-1.5 text-muted-foreground/50">·</span>
-          <span className="font-mono text-[11px]">{current}</span>
+          <span className="mx-1.5 text-ink-3/50" aria-hidden>
+            ·
+          </span>
+          <span className="font-mono text-[11px] text-ink-3">{current}</span>
         </>
       }
       scroll={false}
@@ -355,15 +357,20 @@ export function GraphPanel({
         <>
           {/* Literal prefix kept: the acceptance script waits for 快照已载. */}
           <span
-            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/20 px-2 font-mono text-[11px] text-muted-foreground"
+            className="inline-flex h-6 items-center gap-1 whitespace-nowrap text-[11px] text-ink-3"
             title="当前画面固定在这份快照；斜杠后是账本里的节点总数"
           >
-            快照已载 {loadedNodes}/{totalNodes} 节点
+            快照已载
+            <span className="tw-nums font-mono font-semibold text-ink-2">
+              {loadedNodes}/{totalNodes}
+            </span>
+            节点
           </span>
+          <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
           <Button
-            size="sm"
-            variant={live ? 'outline' : 'ghost'}
-            className="h-7 px-2.5 text-[12px]"
+            size="xs"
+            variant="ghost"
+            className="gap-1.5"
             aria-pressed={live}
             onClick={() => setLive((value) => !value)}
             title={
@@ -373,15 +380,14 @@ export function GraphPanel({
             }
           >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${live ? 'animate-pulse bg-success' : 'bg-muted-foreground'}`}
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${live ? 'animate-pulse bg-success' : 'bg-ink-3'}`}
             />
             实时
           </Button>
           {!live && hasNewChanges && (
             <Button
-              size="sm"
+              size="xs"
               variant="soft"
-              className="h-7 px-2.5 text-[12px]"
               onClick={refresh}
               title="账本已有新变化。刷新会重取一份新快照；旧快照的页面不会被静默拼接。"
             >
@@ -390,9 +396,8 @@ export function GraphPanel({
           )}
           {graph.data?.has_more && (
             <Button
-              size="sm"
+              size="xs"
               variant="ghost"
-              className="h-7 px-2.5 text-[12px]"
               disabled={graph.busy}
               onClick={() => void graph.more()}
               title="图是快照：未载入的部分在账本里；点击加载下一页"
@@ -402,9 +407,8 @@ export function GraphPanel({
           )}
           {graph.root && (
             <Button
-              size="sm"
+              size="xs"
               variant="ghost"
-              className="h-7 px-2.5 text-[12px]"
               onClick={() => {
                 onSelect(null)
                 void graph.focus('')
@@ -413,7 +417,7 @@ export function GraphPanel({
               全图概览
             </Button>
           )}
-          <span className="hidden h-4 w-px bg-border/70 sm:block" aria-hidden />
+          <span className="hidden h-3 w-px shrink-0 bg-hairline sm:block" aria-hidden />
           {/* The one place the project token total lives now (docs/34 §3): the
               whole project, including cached input, reported by the model. */}
           <ProjectTokens usage={board?.usage} />
@@ -422,16 +426,16 @@ export function GraphPanel({
       actions={
         <>
           <a
-            className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-border/60 px-2 text-[12px] text-info transition-colors hover:bg-muted/40"
+            className={`${buttonVariants({ variant: 'outline', size: 'sm' })} gap-1.5`}
             href={`/p/${encodeURIComponent(current)}/api/graph/export`}
             download
             title="导出账本里的全图（不是当前快照页）"
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-4 w-4" />
             导出全图
           </a>
-          <Button size="sm" variant="outline" className="h-7 px-2.5 text-[12px]" onClick={refresh} title="立即重取最新快照">
-            <RefreshCw className="h-3.5 w-3.5" />
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={refresh} title="立即重取最新快照">
+            <RefreshCw className="h-4 w-4" />
             刷新
           </Button>
         </>
@@ -496,21 +500,26 @@ export function GraphPanel({
           guessed node. */}
       <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100vw-1.5rem)] flex-col gap-2">
         {openGoals.length > 0 && (
-          <div className="pointer-events-auto max-w-[280px] rounded-lg border border-border bg-card/85 px-2.5 py-2 text-[11px] shadow-lifted backdrop-blur">
+          <div className="pointer-events-auto max-w-[292px] rounded-xl border border-hairline bg-card/90 px-3 py-2.5 shadow-lifted backdrop-blur">
             <div className="flex items-center gap-1.5">
-              <Crosshair className="h-3 w-3 shrink-0 text-warning" />
-              <span className="font-semibold text-foreground">
+              <Crosshair className="h-3.5 w-3.5 shrink-0 text-warning" />
+              <span className="text-[12px] font-semibold text-ink">
                 终点 · 未达成{openGoals.length > 1 ? `（${openGoals.length}）` : ''}
               </span>
             </div>
-            <div className="mt-1 space-y-1">
+            <div className="mt-1.5 space-y-1">
               {openGoals.slice(0, 2).map((g) => (
-                <div key={g.id} className="tw-break line-clamp-2 leading-relaxed text-muted-foreground" title={g.statement}>
+                <div key={g.id} className="tw-break line-clamp-2 text-[12px] leading-relaxed text-ink-2" title={g.statement}>
                   {g.statement}
+                  {g.start && (
+                    <div className="mt-0.5 line-clamp-1 text-[11px] leading-relaxed text-ink-3" title={g.start}>
+                      起点：{g.start}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
-            <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground/80">
+            <div className="mt-1.5 text-[11px] leading-relaxed text-ink-3">
               未完成前不画进链路，也不连线；达成后接到证据事实上
             </div>
           </div>
@@ -522,10 +531,10 @@ export function GraphPanel({
       </div>
 
       {/* live */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-border bg-card/85 px-2.5 py-1 text-[11px] text-muted-foreground backdrop-blur">
+      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
         <span
-          className={`h-1.5 w-1.5 rounded-full ${
-            running > 0 ? 'animate-pulse bg-info' : live ? 'bg-success' : 'bg-muted-foreground'
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            running > 0 ? 'animate-pulse bg-info' : live ? 'bg-success' : 'bg-ink-3'
           }`}
         />
         <span>
@@ -539,7 +548,9 @@ export function GraphPanel({
         </span>
         {running > 0 && (
           <>
-            <span className="text-muted-foreground/50">·</span>
+            <span className="text-ink-3/50" aria-hidden>
+              ·
+            </span>
             <span>{live ? '实时' : '快照'}</span>
           </>
         )}
@@ -608,28 +619,31 @@ export function GraphPanel({
       )}
 
       {!model.nodes.some((n) => n.type !== 'project') && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="pointer-events-auto flex w-[320px] flex-col items-center gap-2 rounded-lg border border-border bg-card/90 p-5 text-center shadow-lifted backdrop-blur">
-            <Crosshair className="h-6 w-6 text-muted-foreground/50" />
-            <div className="text-ui font-semibold text-foreground">这个项目还是空的</div>
-            <div className="text-[12px] leading-relaxed text-muted-foreground">
-              点「开始运行」让指挥官按项目简报划分目标并派发；项目简报和内置约束可在「概览」里补改，也可以手动新建意图。
-            </div>
-            <div className="mt-1 flex gap-2">
-              <Button size="xs" variant="outline" onClick={() => onNavigate('overview')}>
-                打开概览
-              </Button>
-              <Button size="xs" onClick={onCreateIntent}>
-                <Plus className="h-3 w-3" /> 新建意图
-              </Button>
-            </div>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+          <div className="pointer-events-auto tw-panel w-[340px] rounded-xl">
+            <EmptyState
+              icon={Crosshair}
+              title="这个项目还是空的"
+              description="点「开始运行」让指挥官按项目简报推进并派发方向；目标由你在项目创建或「新建目标」里定义，简报和内置约束可在「概览」里补改。"
+              action={
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => onNavigate('overview')}>
+                    打开概览
+                  </Button>
+                  <Button size="sm" className="gap-1.5" onClick={onCreateIntent}>
+                    <Plus className="h-4 w-4" />
+                    新建意图
+                  </Button>
+                </div>
+              }
+            />
           </div>
         </div>
       )}
 
       {model.nodes.some((n) => n.type !== 'project') && (graph.data?.facts ?? []).length === 0 && (
-        <div className="pointer-events-none absolute bottom-16 left-1/2 -translate-x-1/2">
-          <div className="rounded-full border border-border bg-card/90 px-3 py-1 text-[11px] text-muted-foreground shadow-lifted backdrop-blur">
+        <div className="pointer-events-none absolute bottom-16 left-1/2 -translate-x-1/2 px-3">
+          <div className="rounded-full border border-hairline bg-card/90 px-3.5 py-1.5 text-center text-[11px] text-ink-3 shadow-soft backdrop-blur">
             执行者还没有交接事实：写 `.tw/facts.jsonl` 后，事实会以圆点出现在意图周围
           </div>
         </div>

@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { Activity } from 'lucide-react'
+import { EmptyState } from '@cyber/ui'
 import { fmtInt, runStatusLabel } from '@/lib/format'
 import type { FleetProject, FleetRun } from '@/lib/types'
 
-const LANE_HEIGHT = 34
+const LANE_HEIGHT = 36
+// Bars carry the run's verdict as a tint, never a saturated block: the eye should
+// read lane rhythm first and colour second.
 const BAR_TONE: Record<string, string> = {
   running: 'bg-primary/80 ring-1 ring-primary/50',
   done: 'bg-success/70 ring-1 ring-success/30',
   failed: 'bg-destructive/75 ring-1 ring-destructive/40',
-  canceled: 'bg-muted-foreground/35 ring-1 ring-muted-foreground/25',
+  canceled: 'bg-ink-3/35 ring-1 ring-ink-3/25',
 }
 
 interface Tip {
@@ -94,19 +98,22 @@ export function FleetTimeline({
 
   if (projects.length === 0) {
     return (
-      <div className="py-10 text-center text-[12px] text-muted-foreground">
-        还没有项目。创建项目并派发意图后，这里会出现运行时间线。
-      </div>
+      <EmptyState
+        compact
+        icon={Activity}
+        title="还没有运行时间线"
+        description="创建项目并派发意图后，每条 run 会在这里画成一根时间条。"
+      />
     )
   }
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       {/* time axis: same two columns as the lanes, so a label sits exactly on
           its gridline. The end labels hug the chart edges instead of hanging
           half outside it. */}
-      <div className="mb-0.5 flex text-[10px] text-muted-foreground">
-        <div className="w-28 shrink-0" aria-hidden />
+      <div className="mb-0.5 flex text-[11px] text-ink-3">
+        <div className="w-24 shrink-0 sm:w-28" aria-hidden />
         <div className="relative h-4 flex-1">
           {ticks.map((t, i) => {
             const first = i === 0
@@ -114,7 +121,7 @@ export function FleetTimeline({
             return (
               <span
                 key={i}
-                className={`absolute top-0 whitespace-nowrap leading-4 ${
+                className={`tw-nums absolute top-0 whitespace-nowrap font-mono leading-4 ${
                   first ? 'left-0' : last ? 'right-0' : ''
                 }`}
                 style={first || last ? undefined : { left: `${i * 25}%`, transform: 'translateX(-50%)' }}
@@ -136,26 +143,26 @@ export function FleetTimeline({
               <button
                 type="button"
                 onClick={() => onOpen(project.id)}
-                className="flex w-28 shrink-0 items-center gap-1.5 pr-2 text-left hover:text-primary"
+                className="flex w-24 shrink-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:w-28"
                 title={`${project.name}${project.scope ? ` · ${project.scope}` : ''}`}
               >
-                <span className="truncate text-[11px] text-foreground/85">{project.name}</span>
+                <span className="truncate text-[11px]">{project.name}</span>
                 {project.intents.running > 0 && (
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-primary">
+                  <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-primary">
                     {project.intents.running}
                   </span>
                 )}
               </button>
 
-              <div className="relative flex-1 border-t border-border/30" style={{ height: LANE_HEIGHT }}>
+              <div className="relative flex-1 border-t border-hairline/60" style={{ height: LANE_HEIGHT }}>
                 {[25, 50, 75].map((left) => (
                   <span
                     key={left}
-                    className="pointer-events-none absolute bottom-0 top-0 w-px bg-border/25"
+                    className="pointer-events-none absolute bottom-0 top-0 w-px bg-hairline"
                     style={{ left: `${left}%` }}
                   />
                 ))}
-                <span className="pointer-events-none absolute bottom-0 right-0 top-0 w-px bg-border/40" />
+                <span className="pointer-events-none absolute bottom-0 right-0 top-0 w-px bg-hairline" />
 
                 {bars.map(({ run, s, e }) => {
                   const from = pct(Math.max(s, start))
@@ -171,9 +178,9 @@ export function FleetTimeline({
                       onMouseEnter={(event) => showTip(event, run, s, e)}
                       onMouseMove={(event) => showTip(event, run, s, e)}
                       onMouseLeave={() => setTip(null)}
-                      className={`absolute top-1.5 h-[15px] rounded-sm transition-[filter] hover:brightness-125 ${
-                        BAR_TONE[run.status] ?? 'bg-muted-foreground/40'
-                      } ${run.status === 'running' ? 'animate-pulse' : ''}`}
+                      className={`absolute top-[10px] h-[16px] rounded-sm transition-[filter] hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${
+                        BAR_TONE[run.status] ?? 'bg-ink-3/40'
+                      } ${run.status === 'running' ? 'motion-safe:animate-pulse' : ''}`}
                       style={{ left: `${from}%`, width: `${width}%` }}
                       aria-label={`${project.name} · ${run.title || run.id} · ${runStatusLabel(run)}`}
                     />
@@ -187,7 +194,7 @@ export function FleetTimeline({
                   />
                 )}
                 {bars.length === 0 && (
-                  <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[10px] text-muted-foreground/60">
+                  <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[11px] text-ink-3/80">
                     这段时间没有运行
                   </span>
                 )}
@@ -199,14 +206,15 @@ export function FleetTimeline({
 
       {tip && (
         <div
-          className="pointer-events-none fixed z-[60] w-[250px] rounded-md border border-border bg-popover/95 p-2 text-[11px] shadow-elevated backdrop-blur"
+          className="pointer-events-none fixed z-[60] w-[250px] rounded-lg border border-hairline bg-popover/95 p-2.5 text-[11px] shadow-elevated backdrop-blur"
           style={{ left: tip.x, top: tip.y }}
+          role="tooltip"
         >
-          <div className="truncate font-medium text-foreground" title={tip.title}>
+          <div className="truncate font-medium text-ink" title={tip.title}>
             {tip.title}
           </div>
           {tip.lines.map((line, i) => (
-            <div key={i} className="mt-0.5 text-muted-foreground">
+            <div key={i} className="mt-0.5 font-mono text-ink-3">
               {line}
             </div>
           ))}

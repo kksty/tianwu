@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@cyber/ui'
+import { Crosshair, RefreshCw } from 'lucide-react'
+import { Button, Callout, EmptyState, SkeletonList } from '@cyber/ui'
 import { api, projectID } from '@/lib/api'
 import { usePoll } from '@/lib/hooks'
 import {
@@ -18,7 +19,7 @@ import type { FocusFact, FocusLayer, FocusPage } from '@/lib/focus'
 const PAGE_LIMIT = 50
 
 /** Host-shell descriptor for the panel. A shell that renders panels from its own
- * registry wires the route with these values instead of restating the label. */
+ *  registry wires the route with these values instead of restating the label. */
 export const focusPanel = { id: 'focus', label: '焦点' } as const
 
 /**
@@ -91,18 +92,17 @@ export function FocusPanel({
   const counts = focusCounts(page)
 
   return (
-    <div className="h-full overflow-auto p-3 text-xs" data-testid="focus-panel">
-      <p className="mb-3 text-muted-foreground">
+    <div className="flex h-full min-h-0 flex-col" data-testid="focus-panel">
+      <div className="shrink-0 border-b border-hairline px-5 py-3 text-[12px] leading-5 text-ink-2 sm:px-6 lg:px-8">
         焦点是本次派发的有界索引：热层是必要前提、固定与参考事实，温层是来源链与同一记录实体的跨分支观察，冷层是其余事实。索引截断或未列出不等于事实不存在；冷层、完整前提目录（
-        <code>.tw/context.json</code>）与按 id 读取始终可用。只读，不是新结论。
-      </p>
+        <code className="font-mono text-[11px] text-ink-3">.tw/context.json</code>）与按 id 读取始终可用。只读，不是新结论。
+      </div>
 
-      {intent ? null : (
-        <label className="mb-3 block text-muted-foreground">
-          方向
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-5 py-2 sm:px-6 lg:px-8">
+        {intent ? null : (
           <select
             aria-label="焦点方向"
-            className="mt-1 w-full max-w-md rounded border border-border bg-background p-2"
+            className="h-8 min-w-0 max-w-[320px] rounded-md border border-hairline bg-surface-2/60 px-2 text-[12px] text-ink transition-colors hover:border-ink-3/40 focus-visible:border-ring/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
             value={picked}
             onChange={(event) => setPicked(event.target.value)}
           >
@@ -113,56 +113,96 @@ export function FocusPanel({
               </option>
             ))}
           </select>
-        </label>
-      )}
-
-      <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="focus-layer-switch">
-        {FOCUS_LAYERS.map((option) => (
-          <Button
-            key={option.id}
-            size="xs"
-            variant="ghost"
-            active={layer === option.id}
-            disabled={loading}
-            title={option.hint}
-            onClick={() => setLayer(option.id)}
-          >
-            {option.label}
-          </Button>
-        ))}
-        <span className="text-muted-foreground">{focusLayerHint(layer)}</span>
+        )}
+        <div className="flex items-center gap-2" data-testid="focus-layer-switch">
+          {FOCUS_LAYERS.map((option) => (
+            <Button
+              key={option.id}
+              size="sm"
+              variant="ghost"
+              active={layer === option.id}
+              disabled={loading}
+              title={option.hint}
+              onClick={() => setLayer(option.id)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+        <span className="min-w-0 truncate text-[11px] text-ink-3">{focusLayerHint(layer)}</span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto shrink-0"
+          disabled={loading || !target}
+          onClick={() => void load('', true)}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          刷新
+        </Button>
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground" data-testid="focus-counts">
-        <span>热 {counts.hot}</span>
-        <span>温 {counts.warm}</span>
-        <span>冷 {counts.cold}</span>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-hairline px-5 py-2 text-[11px] text-ink-3 sm:px-6 lg:px-8" data-testid="focus-counts">
+        <span className="tw-nums font-mono">热 {counts.hot}</span>
+        <span className="tw-nums font-mono">温 {counts.warm}</span>
+        <span className="tw-nums font-mono">冷 {counts.cold}</span>
         <span>{focusSnapshotLabel(page)}</span>
         <span>本页 {focusLayerLabel(layer)}</span>
       </div>
 
-      {!target ? (
-        <p className="text-muted-foreground">选择一个方向后读取它的焦点投影。</p>
-      ) : null}
+      {intents.error && (
+        <div role="alert" className="shrink-0 px-5 pt-3 sm:px-6 lg:px-8">
+          <Callout tone="destructive">方向列表读取失败：{intents.error}</Callout>
+        </div>
+      )}
+      {error && (
+        <div role="alert" className="shrink-0 px-5 pt-3 sm:px-6 lg:px-8">
+          <Callout tone="destructive">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>焦点读取失败：{error}</span>
+              <Button size="xs" variant="outline" disabled={loading} onClick={() => void load('', true)}>重试</Button>
+            </div>
+          </Callout>
+        </div>
+      )}
 
-      <ul className="space-y-2">
-        {page?.facts.map((fact) => (
-          <FocusRow key={fact.id} fact={fact} project={project} onOpenFact={onOpenFact} />
-        ))}
-      </ul>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 sm:px-6 lg:px-8">
+        {loading && !page && <SkeletonList count={5} />}
+        {!target && (
+          <EmptyState
+            compact
+            icon={Crosshair}
+            title="选择一个方向"
+            description="选定方向后，这里显示它的热/温/冷焦点投影与截取依据。"
+          />
+        )}
+        {target && !loading && page && page.facts.length === 0 && (
+          <EmptyState
+            compact
+            icon={Crosshair}
+            title={layer === 'cold' ? '冷层没有更多事实' : '该方向没有热/温事实'}
+            description={layer === 'cold' ? '这一方向的事实已经全部列完。' : '切到冷层可读其余事实；索引截断不代表事实不存在。'}
+            action={layer === 'cold' ? undefined : (
+              <Button size="sm" variant="outline" onClick={() => setLayer('cold')}>查看冷层</Button>
+            )}
+          />
+        )}
+        <ul className="divide-y divide-hairline">
+          {page?.facts.map((fact) => (
+            <FocusRow key={fact.id} fact={fact} project={project} onOpenFact={onOpenFact} />
+          ))}
+        </ul>
+        {loading && page && (
+          <div className="pt-2"><SkeletonList count={2} /></div>
+        )}
+      </div>
 
-      {target && page && page.facts.length === 0 ? (
-        <p className="text-muted-foreground">
-          {layer === 'cold' ? '冷层没有更多事实。' : '该方向没有热/温事实；切到冷层可读其余事实。'}
-        </p>
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-5 py-2 sm:px-6 lg:px-8">
+        <span className="tw-nums font-mono text-[11px] text-ink-3">
           已载入 {page?.facts.length ?? 0} / {page?.total ?? 0}
         </span>
         {page?.has_more && page.next_cursor ? (
-          <Button size="xs" disabled={loading} onClick={() => void load(page.next_cursor ?? '', false)}>
+          <Button size="xs" variant="outline" disabled={loading} onClick={() => void load(page.next_cursor ?? '', false)}>
             继续加载
           </Button>
         ) : null}
@@ -171,18 +211,7 @@ export function FocusPanel({
             查看冷层
           </Button>
         )}
-        <Button size="xs" variant="ghost" disabled={loading || !target} onClick={() => void load('', true)}>
-          刷新
-        </Button>
       </div>
-
-      {intents.error ? <p className="mt-2 text-destructive">方向列表读取失败：{intents.error}</p> : null}
-      {error ? (
-        <p role="alert" className="mt-2 text-destructive">
-          焦点读取失败：{error}
-        </p>
-      ) : null}
-      {loading ? <p className="mt-2 text-muted-foreground">读取中…</p> : null}
     </div>
   )
 }
@@ -199,30 +228,30 @@ function FocusRow({
   const missing = fact.status === 'missing'
   return (
     <li
-      className="rounded border border-border p-2"
+      className="py-2.5 transition-colors hover:bg-surface-2/60"
       data-testid="focus-fact"
       data-temperature={fact.temperature}
       data-status={fact.status}
     >
-      <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className={badgeClass(fact.temperature)}>{temperatureLabel(fact.temperature)}</span>
-        <span className={missing ? 'text-destructive' : 'text-muted-foreground'}>{focusStatusLabel(fact.status)}</span>
-        <span className="font-mono text-muted-foreground">{fact.id}</span>
-        {fact.kind ? <span className="text-muted-foreground">{fact.kind}</span> : null}
+        <span className={missing ? 'font-medium text-destructive' : 'text-ink-3'}>{focusStatusLabel(fact.status)}</span>
+        <span className="font-mono text-ink-3">{fact.id}</span>
+        {fact.kind ? <span className="text-ink-3">{fact.kind}</span> : null}
       </div>
-      {fact.title ? <p className="tw-break line-clamp-2 font-medium">{fact.title}</p> : null}
-      {fact.summary ? <p className="tw-break line-clamp-3 text-muted-foreground">{fact.summary}</p> : null}
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+      {fact.title ? <p className="tw-break mt-1 line-clamp-2 text-[12px] font-medium leading-relaxed text-ink">{fact.title}</p> : null}
+      {fact.summary ? <p className="tw-break mt-0.5 line-clamp-3 text-[12px] leading-relaxed text-ink-2">{fact.summary}</p> : null}
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
         {fact.reasons.map((reason) => (
-          <span key={reason} className="rounded bg-muted/40 px-1.5 py-0.5">
+          <span key={reason} className="rounded border border-hairline bg-surface-2 px-1.5 py-0.5">
             {focusReasonLabel(reason)}
           </span>
         ))}
-        {fact.source_run_id ? <span>来源 run {fact.source_run_id}</span> : null}
-        {fact.observed_at ? <span>观察于 {fact.observed_at}</span> : null}
-        <span>断言版本 v{fact.claim_version ?? '—'}</span>
-        <span>{fact.record_version === undefined ? '记录版本未知' : `记录版本 v${fact.record_version}`}</span>
-        <a className="underline" href={focusFactQueryHref(fact.query, project)} target="_blank" rel="noreferrer">
+        {fact.source_run_id ? <span className="font-mono">来源 run {fact.source_run_id}</span> : null}
+        {fact.observed_at ? <span className="font-mono">观察于 {fact.observed_at}</span> : null}
+        <span className="tw-nums font-mono">断言版本 v{fact.claim_version ?? '—'}</span>
+        <span className="tw-nums font-mono">{fact.record_version === undefined ? '记录版本未知' : `记录版本 v${fact.record_version}`}</span>
+        <a className="underline decoration-hairline underline-offset-2 hover:text-ink" href={focusFactQueryHref(fact.query, project)} target="_blank" rel="noreferrer">
           按 id 查询
         </a>
         {onOpenFact && !missing ? (
@@ -242,7 +271,11 @@ function temperatureLabel(temperature: FocusFact['temperature']): string {
 }
 
 function badgeClass(temperature: FocusFact['temperature']): string {
-  if (temperature === 'hot') return 'rounded bg-destructive/15 px-1.5 py-0.5 text-destructive'
-  if (temperature === 'warm') return 'rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600'
-  return 'rounded bg-muted px-1.5 py-0.5 text-muted-foreground'
+  if (temperature === 'hot') {
+    return 'rounded border border-destructive/25 bg-destructive/12 px-1.5 py-0.5 font-medium text-destructive'
+  }
+  if (temperature === 'warm') {
+    return 'rounded border border-warning/25 bg-warning/12 px-1.5 py-0.5 font-medium text-warning'
+  }
+  return 'rounded border border-hairline bg-surface-2 px-1.5 py-0.5 text-ink-3'
 }

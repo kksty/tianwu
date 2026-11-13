@@ -22,7 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
-  Input,
   Textarea,
 } from '@cyber/ui'
 import { api } from '@/lib/api'
@@ -42,7 +41,7 @@ import {
 } from '@/lib/append-goal'
 import type { AppendGoalResult } from '@/lib/types'
 
-const EMPTY_DRAFT: AppendGoalDraft = { statement: '', quantified_target: '', note: '' }
+const EMPTY_DRAFT: AppendGoalDraft = { start: '', statement: '' }
 
 export function AppendGoalDialog({
   open,
@@ -107,7 +106,7 @@ export function AppendGoalDialog({
     if (!draft.statement.trim()) {
       setFailure({
         code: 'goal_invalid',
-        message: '目标不能为空：它要能判断真假',
+        message: '终点不能为空：它要能判断真假',
         needsHuman: false,
         retryable: false,
       })
@@ -157,7 +156,7 @@ export function AppendGoalDialog({
         <DialogHeader>
           <DialogTitle>追加目标并继续</DialogTitle>
           <DialogDescription>
-            追加一个新的、独立的目标；旧目标的完成证明不会被改写。这是项目级显式操作，不是聊天下发——普通消息不会自动恢复暂停的项目。
+            追加以你定义的起点 → 终点为一个新的独立目标；旧目标的完成证明不会被改写。这是项目级显式操作，不是聊天下发——普通消息不会自动恢复暂停的项目。
           </DialogDescription>
         </DialogHeader>
 
@@ -167,7 +166,7 @@ export function AppendGoalDialog({
               <div className="font-medium">{outcome.title}</div>
               {outcome.note && <div className="mt-1 text-[12px] leading-relaxed">{outcome.note}</div>}
             </Callout>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
               {outcome.resumed ? (
                 <span>
                   已恢复派发（来自「{pauseKindLabel(outcome.resumedFrom)}」）
@@ -195,7 +194,16 @@ export function AppendGoalDialog({
               )}
             </Callout>
 
-            <Field label="新目标" hint="必填：一句能判断真假的话">
+            <Field label="起点" hint="可选：这次从哪里开始（现在的状态、已知资产或上一目标的收口结果）">
+              <Textarea
+                rows={2}
+                value={draft.start}
+                onChange={(e) => update({ start: e.target.value })}
+                disabled={busy || Boolean(failure?.goalId)}
+                placeholder="例如：上一目标已完成：已确认门户入口与一个测试账号"
+              />
+            </Field>
+            <Field label="终点" hint="必填：新目标要达成的、能判断真假的状态">
               <Textarea
                 rows={3}
                 value={draft.statement}
@@ -203,23 +211,6 @@ export function AppendGoalDialog({
                 disabled={busy || Boolean(failure?.goalId)}
                 autoFocus
                 placeholder="例如：在授权范围内证明 /admin 的未授权访问，并留下原始响应与时间"
-              />
-            </Field>
-            <Field label="量化条件" hint="可选：达成时要能核对的数字或清单">
-              <Input
-                value={draft.quantified_target}
-                onChange={(e) => update({ quantified_target: e.target.value })}
-                disabled={busy || Boolean(failure?.goalId)}
-                placeholder="例如：至少 1 条带证据的 vuln；或 80/443/8080 三个端口都验证过"
-              />
-            </Field>
-            <Field label="备注" hint="可选：给指挥官/审计的补充说明，不改变目标真假">
-              <Textarea
-                rows={2}
-                value={draft.note}
-                onChange={(e) => update({ note: e.target.value })}
-                disabled={busy || Boolean(failure?.goalId)}
-                placeholder="例如：这是新方向，旧目标保持已完成并保留收据"
               />
             </Field>
 
@@ -236,7 +227,7 @@ export function AppendGoalDialog({
                     </div>
                   )}
                   {failure.hint && <div className="mt-1 text-[11px] opacity-90">{failure.hint}</div>}
-                  <details className="mt-1 text-[10px] opacity-80"><summary>技术详情</summary><div className="font-mono">
+                  <details className="mt-1 text-[11px] opacity-80"><summary>技术详情</summary><div className="font-mono">
                     {failure.code || 'unknown'}
                     {failure.retryable
                       ? ' · 可安全重试'
@@ -248,7 +239,7 @@ export function AppendGoalDialog({
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-ink-3">
               <span>提交遇到问题后可安全重试，不会重复创建同一目标。</span>
             </div>
           </div>

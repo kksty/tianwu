@@ -208,13 +208,17 @@ type GoalStats struct {
 	Open        []GoalItem `json:"open"`
 }
 
-// GoalItem is one unmet goal: the id is what a complete action names, and the
-// quantified target is the thing the model must compare against measurements.
+// GoalItem is one unmet goal: the id is what a complete action names, Start is
+// where the operator said this goal begins, and Statement is the falsifiable
+// end state the model must judge against observations.
 type GoalItem struct {
 	ChangedFacts []string `json:"changed_facts,omitempty"`
 	ID           string   `json:"id"`
 	Statement    string   `json:"statement"`
-	Quantified   string   `json:"quantified_target,omitempty"`
+	Start        string   `json:"start,omitempty"`
+	// Legacy quantified criterion from older consoles; new goals have no
+	// quantified target, but existing ledgers still carry one.
+	Quantified string `json:"quantified_target,omitempty"`
 }
 
 // Item is the L1/L2 projection row: identity, label, gist. Never a full doc.
@@ -619,7 +623,7 @@ func BuildFromDB(db store.DB, limit int) View {
 		if g.Met {
 			v.Goals.Met++
 			if g.ReceiptStale && len(v.Goals.NeedsReview) < limit {
-				v.Goals.NeedsReview = append(v.Goals.NeedsReview, GoalItem{ID: g.ID, Statement: g.Statement, Quantified: g.QuantifiedTarget, ChangedFacts: append([]string(nil), g.ReceiptChanged...)})
+				v.Goals.NeedsReview = append(v.Goals.NeedsReview, GoalItem{ID: g.ID, Statement: g.Statement, Start: g.Start, Quantified: g.QuantifiedTarget, ChangedFacts: append([]string(nil), g.ReceiptChanged...)})
 			}
 			continue
 		}
@@ -627,6 +631,7 @@ func BuildFromDB(db store.DB, limit int) View {
 			v.Goals.Open = append(v.Goals.Open, GoalItem{
 				ID:         g.ID,
 				Statement:  g.Statement,
+				Start:      g.Start,
 				Quantified: g.QuantifiedTarget,
 			})
 		}

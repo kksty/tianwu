@@ -2,9 +2,10 @@ package api
 
 // Prompt/role contract tests (audit F12, items 1–6). They pin the contract
 // text, not an implementation detail: authorization has one rule across roles,
-// strict mode never suggests a bypass, the worker brief has no global goals, the
-// declaration schema has one source, notes are history rather than orders, and a
-// continuation never promises a written index that may have failed.
+// verified_only never suggests a bypass, the worker brief has no operator-owned
+// project goals, the declaration schema has one source, notes are history rather
+// than orders, and a continuation never promises a written index that may have
+// failed.
 
 import (
 	"context"
@@ -82,10 +83,10 @@ func TestAuthorizationRuleIsUnified(t *testing.T) {
 	}
 }
 
-// F12.2: strict mode must not teach "move the required fact into
+// F12.2: verified_only must not teach "move the required fact into
 // context_fact_ids to get past admission". A real premise waits for review; an
 // unverified lead can spawn an independent verification direction instead.
-func TestStrictModeGuidanceSeparatesPremisesFromLeads(t *testing.T) {
+func TestVerifiedOnlyGuidanceSeparatesPremisesFromLeads(t *testing.T) {
 	skill := readSkillAsset(t, "commander")
 
 	for _, banned := range []string{
@@ -93,7 +94,7 @@ func TestStrictModeGuidanceSeparatesPremisesFromLeads(t *testing.T) {
 		"或等复核通过再派",
 	} {
 		if strings.Contains(skill, banned) {
-			t.Errorf("strict guidance still suggests a bypass: %q", banned)
+			t.Errorf("verified_only guidance still suggests a bypass: %q", banned)
 		}
 	}
 	for _, want := range []string{
@@ -104,7 +105,7 @@ func TestStrictModeGuidanceSeparatesPremisesFromLeads(t *testing.T) {
 		"不要为了派下游动作把它塞进 `context_fact_ids`",
 	} {
 		if !strings.Contains(skill, want) {
-			t.Errorf("strict guidance missing the premise/lead distinction %q:\n%s", want, skill)
+			t.Errorf("verified_only guidance missing the premise/lead distinction %q:\n%s", want, skill)
 		}
 	}
 }
@@ -292,7 +293,11 @@ func TestSlimBriefKeepsHardConstraints(t *testing.T) {
 		"验收标准标记",
 		".tw/context.json",
 		"## 纪律",
-		"## 证据（进报告的原始材料）",
+		// The endpoint goal is operator-owned; even the degraded brief must keep
+		// the rule that a session cannot create, rewrite or append one.
+		"项目终点目标由操作员定义",
+		"你不创建、改写或追加目标",
+		"## 证据（原始材料）",
 		"## 交接（必做）",
 		"声明字段（唯一来源",
 	} {

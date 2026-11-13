@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Layers,
   Power,
   RefreshCw,
+  Search,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -12,6 +13,12 @@ import {
   Badge,
   Button,
   Callout,
+  Chip,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
   EmptyState,
   Field,
   Input,
@@ -22,18 +29,18 @@ import {
   SelectTrigger,
   SelectValue,
   SkeletonList,
+  Spinner,
   StatusIndicator,
   Textarea,
   useConfirm,
 } from '@cyber/ui'
 import { Page, Panel } from '@/components/Page'
 import { ApiError, api } from '@/lib/api'
-import { fmtInt, fmtTime, oneLine, premisePolicyHint, premisePolicyLabel, statusKind, statusLabel } from '@/lib/format'
+import { fmtInt, fmtTime, oneLine, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll, type AsyncState } from '@/lib/hooks'
 import type {
   ModelProfilesResponse,
   PeerRule,
-  PremisePolicy,
   ProjectInfo,
   SpawnResponse,
   WorkerView,
@@ -65,7 +72,7 @@ function ErrorLine({ error }: { error: unknown }) {
   if (!error) return null
   const code = error instanceof ApiError ? error.code : undefined
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[12px] text-destructive">
+    <div role="alert" className="flex flex-wrap items-center gap-2 text-[12px] text-destructive">
       <span>{errText(error)}</span>
       {code && (
         <Badge size="sm" variant="danger" className="font-mono">
@@ -74,6 +81,27 @@ function ErrorLine({ error }: { error: unknown }) {
       )}
     </div>
   )
+}
+
+/** Roster facet: one compact status filter above the list. */
+type WorkerFacet = 'all' | 'running' | 'waiting' | 'failed' | 'done'
+
+const FACETS: { id: WorkerFacet; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'running', label: '在跑' },
+  { id: 'waiting', label: '待办' },
+  { id: 'failed', label: '失败' },
+  { id: 'done', label: '终态' },
+]
+
+function facetOf(w: WorkerView): WorkerFacet {
+  if (w.status === 'running' || w.status === 'claimed') return 'running'
+  // A cancellation is not a failure: the row badge says 取消, and the roster
+  // headline reads 停/终态. Bucket it with the terminal states instead of
+  // 失败, and keep parked directions under 待办 (they can still be reopened).
+  if (w.status === 'failed') return 'failed'
+  if (w.status === 'done' || w.status === 'canceled') return 'done'
+  return 'waiting'
 }
 
 /**
@@ -101,52 +129,121 @@ export function Workers({
   const workers = usePoll(api.workers, 4000)
   const profiles = useLoad(api.modelProfiles, [])
   const project = projects.find((p) => p.id === current)
+  const [spawnOpen, setSpawnOpen] = useState(false)
+  const rows = workers.data?.workers ?? []
+  const total = rows.length
+  const running = rows.filter((w) => w.running).length
 
   return (
     <Page
       title="协作"
       subtitle="造人（worker）、看谁在跑、kill、模型档位与消息授权；一个 worker = 一个意图 + 一次运行"
+      meta={
+        <>
+          <span className="tw-nums font-mono text-[11px] text-ink-3">工作者 {fmtInt(total)}</span>
+          <span className="tw-nums font-mono text-[11px] text-ink-3">在跑 {fmtInt(running)}</span>
+        </>
+      }
+      actions={
+        <Button size="sm" onClick={() => setSpawnOpen(true)}>
+          <UserPlus className="h-3.5 w-3.5" />
+          造一个人
+        </Button>
+      }
       scroll={false}
     >
-      <div className="grid h-full min-h-0 grid-cols-1 gap-3 py-3 xl:grid-cols-[1fr_400px]">
+      <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden xl:p-6">
         <WorkerRoster
           workers={workers}
+          onCreate={() => setSpawnOpen(true)}
           onOpenGraphIntent={onOpenGraphIntent}
           onOpenRun={onOpenRun}
         />
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
-          <SpawnForm
-            project={project}
-            profiles={profiles}
-            onSpawned={() => workers.reload()}
-          />
+        <div className="flex min-h-0 flex-col gap-4 xl:overflow-y-auto xl:pr-1">
           <TierDefaultsPanel project={project} profiles={profiles} onSaved={onRefresh} />
           <PeerPolicyPanel />
-          <PremisePolicyPanel />
+          <p className="rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
+            前提政策（硬前提门槛）已移至{' '}
+            <a className="text-ink-2 underline underline-offset-2" href="/g/?view=settings">设置 → 项目设置</a>
+            ，与项目默认模型和运行选项一起保存。
+          </p>
         </div>
       </div>
+      <SpawnDialog
+        open={spawnOpen}
+        onOpenChange={setSpawnOpen}
+        project={project}
+        profiles={profiles}
+        onSpawned={() => workers.reload()}
+      />
     </Page>
+  )
+}
+
+function SpawnDialog({
+  open,
+  onOpenChange,
+  project,
+  profiles,
+  onSpawned,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  project?: ProjectInfo
+  profiles: AsyncState<ModelProfilesResponse>
+  onSpawned: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86vh] max-w-xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-ink-3" />
+            造一个人
+          </DialogTitle>
+          <DialogDescription>
+            一个 worker = 一个意图 + 一次运行。容量满时返回 started=false，用同一个幂等键再点一次会启动它。
+          </DialogDescription>
+        </DialogHeader>
+        {open && <SpawnForm project={project} profiles={profiles} onSpawned={onSpawned} />}
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function WorkerRoster({
   workers,
+  onCreate,
   onOpenGraphIntent,
   onOpenRun,
 }: {
   workers: AsyncState<WorkersResponse>
+  onCreate: () => void
   onOpenGraphIntent?: (intentID: string) => void
   onOpenRun?: (runID: string) => void
 }) {
   const confirm = useConfirm()
   const [notice, setNotice] = useState('')
   const [fail, setFail] = useState<unknown>(null)
+  const [query, setQuery] = useState('')
+  const [facet, setFacet] = useState<WorkerFacet>('all')
+  const [selected, setSelected] = useState<string | null>(null)
   const rows = [...(workers.data?.workers ?? [])].sort(
     (a, b) =>
       workerRank(a) - workerRank(b) ||
       (b.created_at > a.created_at ? 1 : b.created_at < a.created_at ? -1 : 0),
   )
   const running = rows.filter((w) => w.running).length
+  const needle = query.trim().toLowerCase()
+  const filtered = rows.filter((w) => {
+    if (facet !== 'all' && facetOf(w) !== facet) return false
+    if (!needle) return true
+    return [w.title, w.intent_id, w.participant_id, w.profile, w.resolved_profile, w.model, w.run_id, w.node]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(needle)
+  })
 
   async function kill(w: WorkerView) {
     const ok = await confirm({
@@ -169,53 +266,110 @@ function WorkerRoster({
     }
   }
 
+  const firstLoad = workers.loading && !workers.data
+
   return (
     <Panel
       title={`工作者（${fmtInt(rows.length)}）`}
       className="flex min-h-0 flex-col"
-      bodyClassName="min-h-0 flex-1 overflow-hidden p-0"
+      bodyClassName="flex min-h-0 flex-1 flex-col p-0"
       extra={
         <>
-          <span className="font-mono text-[11px] text-muted-foreground">在跑 {running}</span>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => workers.reload()}
-            title="立即刷新（页面每 4 秒也会自动刷新）"
-          >
-            <RefreshCw className="h-3 w-3" />
-            刷新
-          </Button>
+          <span className="tw-nums font-mono text-[11px] text-ink-3">在跑 {running}</span>
         </>
       }
     >
-      <div className="space-y-2 border-b border-border/60 p-3">
-        {workers.error && <Callout tone="destructive">读工作者列表失败：{workers.error}</Callout>}
-        {notice && <Callout tone="success">{notice}</Callout>}
-        <ErrorLine error={fail} />
+      {/* One 12px toolbar: search + status facets + refresh, all h-8. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+        <div className="relative min-w-0 flex-1 basis-[160px]">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索标题 / 意图 / 执行者 / 模型"
+            className="h-8 pl-7 text-[12px]"
+            aria-label="过滤工作者"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {FACETS.map((f) => (
+            <Chip
+              key={f.id}
+              active={facet === f.id}
+              onClick={() => setFacet(f.id)}
+              className="h-8 rounded-md px-2.5 text-[12px]"
+            >
+              {f.label}
+            </Chip>
+          ))}
+        </div>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          className="shrink-0"
+          aria-label="刷新工作者名单"
+          title="立即刷新（页面每 4 秒也会自动刷新）"
+          onClick={() => workers.reload()}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${workers.loading ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
-      <ScrollArea className="h-full">
-        <div className="space-y-1.5 p-3">
-          {workers.loading && !workers.data && <SkeletonList count={3} />}
-          {!workers.loading && rows.length === 0 && (
+
+      {(workers.error || fail || notice) && (
+        <div className="shrink-0 space-y-2 border-b border-hairline p-3">
+          {workers.error && (
+            <Callout tone="destructive">
+              <div className="flex flex-wrap items-center gap-2">
+                <span>读工作者列表失败：{workers.error}</span>
+                <Button size="xs" variant="outline" onClick={() => workers.reload()}>重试</Button>
+              </div>
+            </Callout>
+          )}
+          {notice && <Callout tone="success">{notice}</Callout>}
+          <ErrorLine error={fail} />
+        </div>
+      )}
+
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-2">
+          {firstLoad && <SkeletonList count={4} />}
+          {!firstLoad && rows.length === 0 && (
             <EmptyState
               compact
               icon={Users}
               title="还没有工作者"
-              description="用右侧「造一个人」创建第一个；执行者也会在运行中造自己的后代。"
+              description="造第一个人，或让执行者在运行中造它的后代；名单每 4 秒自动刷新。"
+              action={<Button size="sm" onClick={onCreate}><UserPlus className="h-3.5 w-3.5" />造一个人</Button>}
             />
           )}
-          {rows.map((w) => (
-            <WorkerRow
-              key={w.intent_id}
-              w={w}
-              onKill={() => kill(w)}
-              onOpenGraphIntent={onOpenGraphIntent}
-              onOpenRun={onOpenRun}
+          {!firstLoad && rows.length > 0 && filtered.length === 0 && (
+            <EmptyState
+              compact
+              icon={Users}
+              title="没有匹配的工作者"
+              description={`当前过滤：${facet === 'all' ? '全部状态' : FACETS.find((f) => f.id === facet)?.label}${needle ? ` · ${query.trim()}` : ''}`}
+              action={
+                <Button size="sm" variant="outline" onClick={() => { setQuery(''); setFacet('all') }}>
+                  清除筛选
+                </Button>
+              }
             />
-          ))}
+          )}
+          <div className="divide-y divide-hairline">
+            {filtered.map((w) => (
+              <WorkerRow
+                key={w.intent_id}
+                w={w}
+                selected={selected === w.intent_id}
+                onSelect={() => setSelected(selected === w.intent_id ? null : w.intent_id)}
+                onKill={() => kill(w)}
+                onOpenGraphIntent={onOpenGraphIntent}
+                onOpenRun={onOpenRun}
+              />
+            ))}
+          </div>
           {rows.length > 0 && (
-            <div className="pt-1 font-mono text-[10.5px] text-muted-foreground">
+            <div className="px-1.5 py-2 font-mono text-[11px] text-ink-3">
               排序：在跑 → 待办/等待 → 停/终态；名单每 4 秒刷新
             </div>
           )}
@@ -227,34 +381,64 @@ function WorkerRoster({
 
 function WorkerRow({
   w,
+  selected,
+  onSelect,
   onKill,
   onOpenGraphIntent,
   onOpenRun,
 }: {
   w: WorkerView
+  selected: boolean
+  onSelect: () => void
   onKill: () => void
   onOpenGraphIntent?: (intentID: string) => void
   onOpenRun?: (runID: string) => void
 }) {
   const terminal = !w.can_kill
+  // A 2px rail carries the semantic colour in a small area; running is the only
+  // "live" tone, failed is the only alarm tone.
+  const rail = w.running
+    ? 'border-l-info/60'
+    : w.status === 'failed'
+      ? 'border-l-destructive/60'
+      : 'border-l-transparent'
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusIndicator status={statusKind(w.status)} label={statusLabel(w.status)} />
-        {w.running && <StatusIndicator status="running" label="在跑" compact />}
-        {w.parent_intent_id && (
-          <Badge size="sm" variant="secondary" title={`父意图 ${w.parent_intent_id}`}>
-            子任务
-          </Badge>
-        )}
-        {w.hold && (
-          <Badge size="sm" variant="outline">
-            Hold
-          </Badge>
-        )}
-        <span className="min-w-0 truncate text-[13px] font-medium text-foreground">{w.title}</span>
-        <span className="font-mono text-[10.5px] text-muted-foreground">{w.intent_id}</span>
-        <div className="ml-auto flex items-center gap-1.5">
+    <article
+      data-worker-id={w.intent_id}
+      data-selected={selected ? 'true' : undefined}
+      className={`border-l-2 transition-colors ${rail} ${selected ? 'bg-surface-3/70' : 'hover:bg-surface-2/60'}`}
+    >
+      <div className="flex items-stretch gap-2 px-2.5 py-2">
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-expanded={selected}
+          className="flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <StatusIndicator compact status={statusKind(w.status)} label={statusLabel(w.status)} />
+            {w.running && <StatusIndicator compact status="running" label="生成中" />}
+            {w.hold && <Badge size="sm" variant="outline">Hold</Badge>}
+            {w.parent_intent_id && (
+              <Badge size="sm" variant="secondary" title={`父意图 ${w.parent_intent_id}`}>
+                子任务
+              </Badge>
+            )}
+            <span className="min-w-0 truncate text-[13px] font-medium text-ink">{w.title}</span>
+          </span>
+          <span className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-ink-3">
+            <span className="min-w-0 truncate" title={w.intent_id}>{w.intent_id}</span>
+            {w.run_id && (
+              <>
+                <span aria-hidden className="text-ink-3/60">·</span>
+                <span className="min-w-0 truncate" title={w.run_id}>run {w.run_id}</span>
+                {w.run_status ? <span className="shrink-0">（{statusLabel(w.run_status)}）</span> : null}
+              </>
+            )}
+            <span className="ml-auto shrink-0">{fmtTime(w.created_at)}</span>
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-1 self-center">
           {/* 跨页联动（docs/34 §4）：worker = 意图 + 最近 run，所以两个入口
               各自指向图谱的 s:<id> 与运行页的 run。回调没传时不渲染。 */}
           {onOpenGraphIntent && w.intent_id && (
@@ -281,7 +465,8 @@ function WorkerRow({
           )}
           <Button
             size="xs"
-            variant={terminal ? 'outline' : 'destructive'}
+            variant="outline"
+            className={terminal ? 'shrink-0' : 'shrink-0 border-destructive/30 text-destructive hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive'}
             disabled={terminal}
             title={terminal ? '已结束：不用再 kill' : '置 Hold + 取消当前 run（需二次确认）'}
             onClick={onKill}
@@ -292,35 +477,32 @@ function WorkerRow({
         </div>
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-muted-foreground">
-        <span>参与者 {w.participant_id}</span>
-        {w.profile && <span>profile {w.profile}</span>}
-        {w.resolved_profile && w.resolved_profile !== w.profile && (
-          <span title="run 实际解析到的模型配置">实际 {w.resolved_profile}</span>
-        )}
-        {w.tier && <Badge size="sm" variant="secondary">{w.tier}</Badge>}
-        {w.model && <span>model {w.model}</span>}
-        {w.node && <span>node {w.node}</span>}
-        {w.run_id && (
-          <span>
-            run {w.run_id}
-            {w.run_status ? `（${statusLabel(w.run_status)}）` : ''}
-          </span>
-        )}
-        {w.parent_intent_id && <span>父 {w.parent_intent_id}</span>}
-        {w.delegated_by_run_id && <span>委派 run {w.delegated_by_run_id}</span>}
-        {w.created_by_participant_id && <span>创建者 {w.created_by_participant_id}</span>}
-        <span className="ml-auto">{fmtTime(w.created_at)}</span>
-      </div>
-
-      <div className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider">
-          {w.last_event_kind || '最近事件'}
-        </span>
-        <span className="tw-break min-w-0 flex-1">{oneLine(w.last_event_text ?? '', 220) || '—'}</span>
-        {w.last_event_at && <span className="shrink-0 font-mono">{fmtTime(w.last_event_at)}</span>}
-      </div>
-    </div>
+      {selected && (
+        <div className="space-y-1.5 border-t border-hairline px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-ink-3">
+            <span>参与者 {w.participant_id}</span>
+            {w.profile && <span>profile {w.profile}</span>}
+            {w.resolved_profile && w.resolved_profile !== w.profile && (
+              <span title="run 实际解析到的模型配置">实际 {w.resolved_profile}</span>
+            )}
+            {w.tier && <Badge size="sm" variant="secondary">{w.tier}</Badge>}
+            {w.model && <span>model {w.model}</span>}
+            {w.node && <span>node {w.node}</span>}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-ink-3">
+            {w.parent_intent_id && <span>父 {w.parent_intent_id}</span>}
+            {w.delegated_by_run_id && <span>委派 run {w.delegated_by_run_id}</span>}
+            {w.created_by_participant_id && <span>创建者 {w.created_by_participant_id}</span>}
+            {w.last_event_kind && <span className="uppercase tracking-wide">{w.last_event_kind}</span>}
+            {w.last_event_at && <span className="ml-auto">{fmtTime(w.last_event_at)}</span>}
+          </div>
+          <div className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-2">
+            <span className="shrink-0 text-ink-3">最近事件</span>
+            <span className="tw-break min-w-0 flex-1">{oneLine(w.last_event_text ?? '', 220) || '—'}</span>
+          </div>
+        </div>
+      )}
+    </article>
   )
 }
 
@@ -351,6 +533,7 @@ function SpawnForm({
   const [busy, setBusy] = useState(false)
   const [fail, setFail] = useState<unknown>(null)
   const [outcome, setOutcome] = useState<SpawnResponse | null>(null)
+  const titleRef = useRef<HTMLInputElement | null>(null)
 
   const all = profiles.data?.profiles ?? []
   const active = profiles.data?.active ?? ''
@@ -358,6 +541,12 @@ function SpawnForm({
   async function submit() {
     if (!title.trim() && !description.trim()) {
       setFail(new Error('标题或任务书至少填一个'))
+      return
+    }
+    // "指定 profile" with nothing selected would silently fall back to the
+    // project default, i.e. start a different model than the operator picked.
+    if (mode === 'profile' && !profile) {
+      setFail(new Error('已选择「指定 profile」，但还没有选具体配置：请先选一个，或改回默认'))
       return
     }
     setBusy(true)
@@ -390,162 +579,164 @@ function SpawnForm({
   }
 
   return (
-    <Panel title="造一个人" extra={<UserPlus className="h-3.5 w-3.5 text-muted-foreground" />}>
-      <div className="space-y-2.5">
-        <Field label="标题" hint="一句话：这个人负责回答什么">
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="例如：核对 /admin 的越权读取面"
-          />
-        </Field>
-        <Field label="任务书" hint="写清目标、授权范围、验收标准，以及需要引用的事实或证据">
-          <Textarea
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder={'普通用户能否读取他人订单？只做只读验证，不改数据；从事实 f_xxx 开始。'}
-          />
-        </Field>
+    <div className="space-y-3">
+      <Field label="标题" hint="一句话：这个人负责回答什么">
+        <Input
+          ref={titleRef}
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="例如：核对 /admin 的越权读取面"
+          className="text-[13px]"
+        />
+      </Field>
+      <Field label="任务书" hint="写清目标、授权范围、验收标准，以及需要引用的事实或证据">
+        <Textarea
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder={'普通用户能否读取他人订单？只做只读验证，不改数据；从事实 f_xxx 开始。'}
+          className="text-[12px] leading-relaxed"
+        />
+      </Field>
+      <Field
+        label="模型绑定"
+        hint={`项目档位：worker=${project?.worker_profile || '未配置'}，strong=${project?.strong_profile || '未配置'}；未配置的档位会由服务端报错`}
+      >
+        <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
+          <SelectTrigger className="h-9 text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default" className="text-[12px]">
+              默认（项目 worker 档 → 实例 active{active ? `：${active}` : ''}）
+            </SelectItem>
+            <SelectItem value="profile" className="text-[12px]">
+              指定 profile
+            </SelectItem>
+            <SelectItem value="tier" className="text-[12px]">
+              指定档位（tier）
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      {mode === 'profile' && (
         <Field
-          label="模型绑定"
-          hint={`项目档位：worker=${project?.worker_profile || '未配置'}，strong=${project?.strong_profile || '未配置'}；未配置的档位会由服务端报错`}
+          label="profile"
+          hint="显示 tier / 容量(running/max_concurrency) / 端点可用性；不可执行或端点不可用的配置禁用"
         >
-          <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
-            <SelectTrigger className="h-9 text-xs">
+          <Select value={profile || undefined} onValueChange={setProfile}>
+            <SelectTrigger className="h-9 text-[12px]">
+              <SelectValue placeholder={all.length ? '选择模型配置' : '没有可用配置'} />
+            </SelectTrigger>
+            <SelectContent>
+              {all.map((p) => {
+                const unavailable = !p.runnable || (p.probed && !p.available)
+                const cap = `${p.running ?? 0}/${p.max_concurrency ? p.max_concurrency : '∞'}`
+                const why = !p.runnable ? '不可执行' : p.probed && !p.available ? '端点不可用' : ''
+                return (
+                  <SelectItem
+                    key={p.id}
+                    value={p.id}
+                    disabled={unavailable}
+                    className="text-[12px]"
+                    title={unavailable ? `${why}${p.probe_error ? `：${p.probe_error}` : ''}` : cap}
+                  >
+                    <span className="font-mono">{p.id}</span>
+                    {p.tier ? (
+                      <span className="ml-2 text-[11px] text-ink-3">[{p.tier}]</span>
+                    ) : null}
+                    <span className="tw-nums ml-2 font-mono text-[11px] text-ink-3">容量 {cap}</span>
+                    {p.model ? <span className="ml-2 text-[11px] text-ink-3">{p.model}</span> : null}
+                    {why ? <span className="ml-2 text-[11px] text-destructive">{why}</span> : null}
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+      {mode === 'tier' && (
+        <Field label="资源路由（可选）" hint="按项目 worker_profile/strong_profile 选择配置；不决定职责或模型推理强度">
+          <Select value={tier} onValueChange={setTier}>
+            <SelectTrigger className="h-9 text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default" className="text-xs">
-                默认（项目 worker 档 → 实例 active{active ? `：${active}` : ''}）
+              <SelectItem value="worker" className="text-[12px]">
+                worker（项目执行者默认配置）
               </SelectItem>
-              <SelectItem value="profile" className="text-xs">
-                指定 profile
-              </SelectItem>
-              <SelectItem value="tier" className="text-xs">
-                指定档位（tier）
+              <SelectItem value="strong" className="text-[12px]">
+                strong（项目指挥官配置）
               </SelectItem>
             </SelectContent>
           </Select>
         </Field>
-        {mode === 'profile' && (
-          <Field
-            label="profile"
-            hint="显示 tier / 容量(running/max_concurrency) / 端点可用性；不可执行或端点不可用的配置禁用"
-          >
-            <Select value={profile || undefined} onValueChange={setProfile}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder={all.length ? '选择模型配置' : '没有可用配置'} />
-              </SelectTrigger>
-              <SelectContent>
-                {all.map((p) => {
-                  const unavailable = !p.runnable || (p.probed && !p.available)
-                  const cap = `${p.running ?? 0}/${p.max_concurrency ? p.max_concurrency : '∞'}`
-                  const why = !p.runnable ? '不可执行' : p.probed && !p.available ? '端点不可用' : ''
-                  return (
-                    <SelectItem
-                      key={p.id}
-                      value={p.id}
-                      disabled={unavailable}
-                      className="text-xs"
-                      title={unavailable ? `${why}${p.probe_error ? `：${p.probe_error}` : ''}` : cap}
-                    >
-                      <span className="font-mono">{p.id}</span>
-                      {p.tier ? (
-                        <span className="ml-2 text-[10px] text-muted-foreground">[{p.tier}]</span>
-                      ) : null}
-                      <span className="ml-2 font-mono text-[10px] text-muted-foreground">容量 {cap}</span>
-                      {p.model ? <span className="ml-2 text-[11px] text-muted-foreground">{p.model}</span> : null}
-                      {why ? <span className="ml-2 text-[10px] text-destructive">{why}</span> : null}
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
-          </Field>
-        )}
-        {mode === 'tier' && (
-          <Field label="资源路由（可选）" hint="按项目 worker_profile/strong_profile 选择配置；不决定职责或模型推理强度">
-            <Select value={tier} onValueChange={setTier}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="worker" className="text-xs">
-                  worker（项目执行者默认配置）
-                </SelectItem>
-                <SelectItem value="strong" className="text-xs">
-                  strong（项目指挥官配置）
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-        )}
-        <Field
-          label="幂等键（自动生成）"
-          hint="重试用同一个键会找回同一个 worker，不会重复造人；容量满时保留此键再点一次即可启动它"
-        >
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={key}
-              readOnly
-              className="h-8 font-mono text-[11px]"
-              aria-label="幂等键"
-            />
-            <Button
-              size="xs"
-              variant="outline"
-              className="shrink-0"
-              onClick={() => setKey(newIdempotencyKey())}
-              title="换一个键：这会变成一个新的人"
-            >
-              重新生成
-            </Button>
-          </div>
-        </Field>
-
+      )}
+      <Field
+        label="幂等键（自动生成）"
+        hint="重试用同一个键会找回同一个 worker，不会重复造人；容量满时保留此键再点一次即可启动它"
+      >
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={submit} disabled={busy}>
-            <UserPlus className="h-3.5 w-3.5" />
-            {busy ? '造人中…' : '造一个人'}
+          <Input
+            value={key}
+            readOnly
+            className="h-8 font-mono text-[11px]"
+            aria-label="幂等键"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => { setKey(newIdempotencyKey()); titleRef.current?.focus() }}
+            title="换一个键：这会变成一个新的人"
+          >
+            重新生成
           </Button>
-          <span className="text-[11px] text-muted-foreground">
-            容量满时返回 started=false + reason，不会重复创建
-          </span>
         </div>
+      </Field>
 
-        <ErrorLine error={fail} />
-        {outcome && (
-          <Callout tone={outcome.started ? 'success' : 'warning'}>
-            <div className="space-y-1">
-              <div>
-                {outcome.created ? '已创建' : '幂等命中（未新建）'}：{' '}
-                <span className="font-mono">{outcome.intent_id}</span>
-                {' · '}started={String(outcome.started)}
-              </div>
-              {outcome.run_id && (
-                <div>
-                  run <span className="font-mono">{outcome.run_id}</span>
-                  {outcome.resolved_model ? ` · ${outcome.resolved_model}` : ''}
-                </div>
-              )}
-              {!outcome.started && outcome.reason && (
-                <div>
-                  原因：{outcome.reason}
-                  <div className="mt-0.5 opacity-80">用同一个幂等键再点一次「造一个人」会启动它，而不是创建新 worker。</div>
-                </div>
-              )}
-              {outcome.worker?.profile && (
-                <div className="font-mono text-[11px] opacity-80">
-                  profile {outcome.worker.profile}
-                  {outcome.worker.tier ? ` · tier ${outcome.worker.tier}` : ''}
-                </div>
-              )}
-            </div>
-          </Callout>
-        )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={() => void submit()} disabled={busy}>
+          {busy ? <Spinner size="sm" className="text-primary-foreground" /> : <UserPlus className="h-3.5 w-3.5" />}
+          {busy ? '造人中…' : '造一个人'}
+        </Button>
+        <span className="text-[11px] leading-4 text-ink-3">
+          容量满时返回 started=false + reason，不会重复创建
+        </span>
       </div>
-    </Panel>
+
+      <ErrorLine error={fail} />
+      {outcome && (
+        <Callout tone={outcome.started ? 'success' : 'warning'}>
+          <div className="space-y-1">
+            <div>
+              {outcome.created ? '已创建' : '幂等命中（未新建）'}：{' '}
+              <span className="font-mono">{outcome.intent_id}</span>
+              {' · '}started={String(outcome.started)}
+            </div>
+            {outcome.run_id && (
+              <div>
+                run <span className="font-mono">{outcome.run_id}</span>
+                {outcome.resolved_model ? ` · ${outcome.resolved_model}` : ''}
+              </div>
+            )}
+            {!outcome.started && outcome.reason && (
+              <div>
+                原因：{outcome.reason}
+                <div className="mt-0.5 opacity-80">用同一个幂等键再点一次「造一个人」会启动它，而不是创建新 worker。</div>
+              </div>
+            )}
+            {outcome.worker?.profile && (
+              <div className="font-mono text-[11px] opacity-80">
+                profile {outcome.worker.profile}
+                {outcome.worker.tier ? ` · tier ${outcome.worker.tier}` : ''}
+              </div>
+            )}
+          </div>
+        </Callout>
+      )}
+    </div>
   )
 }
 
@@ -637,8 +828,8 @@ function TierDefaultsPanel({
   }
 
   return (
-    <Panel title="默认模型" extra={<Layers className="h-3.5 w-3.5 text-muted-foreground" />}>
-      <div className="space-y-2.5">
+    <Panel title="默认模型" extra={<Layers className="h-3.5 w-3.5 text-ink-3" />}>
+      <div className="space-y-3">
         <Callout tone="info">
           <div className="space-y-1">
             <div>
@@ -652,7 +843,14 @@ function TierDefaultsPanel({
           </div>
         </Callout>
 
-        {profiles.error && <Callout tone="destructive">读模型配置失败：{profiles.error}</Callout>}
+        {profiles.error && (
+          <Callout tone="destructive">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>读模型配置失败：{profiles.error}</span>
+              <Button size="xs" variant="outline" onClick={() => void profiles.reload?.()}>重试</Button>
+            </div>
+          </Callout>
+        )}
 
         <Field
           label="执行者默认模型"
@@ -667,11 +865,11 @@ function TierDefaultsPanel({
             onValueChange={(v) => setWorker(v === INHERIT ? '' : v)}
             disabled={!projectId}
           >
-            <SelectTrigger className="h-9 text-xs">
+            <SelectTrigger className="h-9 text-[12px]">
               <SelectValue placeholder="继承实例 active" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={INHERIT} className="text-xs">
+              <SelectItem value={INHERIT} className="text-[12px]">
                 继承实例 active（清空）{active ? `：${active}` : ''}
               </SelectItem>
               {options.map((p) => (
@@ -679,12 +877,12 @@ function TierDefaultsPanel({
                   key={p.id}
                   value={p.id}
                   disabled={p.disabled}
-                  className="text-xs"
+                  className="text-[12px]"
                   title={p.title || undefined}
                 >
                   <span className="font-mono">{p.label}</span>
                   {p.note ? (
-                    <span className={`ml-2 text-[10px] ${p.warn ? 'text-warning' : 'text-muted-foreground'}`}>
+                    <span className={`ml-2 text-[11px] ${p.warn ? 'text-warning' : 'text-ink-3'}`}>
                       {p.note}
                     </span>
                   ) : null}
@@ -707,11 +905,11 @@ function TierDefaultsPanel({
             onValueChange={(v) => setStrong(v === INHERIT ? '' : v)}
             disabled={!projectId}
           >
-            <SelectTrigger className="h-9 text-xs">
+            <SelectTrigger className="h-9 text-[12px]">
               <SelectValue placeholder="继承实例 active" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={INHERIT} className="text-xs">
+              <SelectItem value={INHERIT} className="text-[12px]">
                 继承实例 active（清空）{active ? `：${active}` : ''}
               </SelectItem>
               {options.map((p) => (
@@ -719,12 +917,12 @@ function TierDefaultsPanel({
                   key={p.id}
                   value={p.id}
                   disabled={p.disabled}
-                  className="text-xs"
+                  className="text-[12px]"
                   title={p.title || undefined}
                 >
                   <span className="font-mono">{p.label}</span>
                   {p.note ? (
-                    <span className={`ml-2 text-[10px] ${p.warn ? 'text-warning' : 'text-muted-foreground'}`}>
+                    <span className={`ml-2 text-[11px] ${p.warn ? 'text-warning' : 'text-ink-3'}`}>
                       {p.note}
                     </span>
                   ) : null}
@@ -735,158 +933,16 @@ function TierDefaultsPanel({
         </Field>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={save} disabled={busy || !projectId}>
+          <Button size="sm" variant="secondary" onClick={save} disabled={busy || !projectId}>
+            {busy && <Spinner size="sm" className="text-ink-2" />}
             {busy ? '保存中…' : '保存默认模型'}
           </Button>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[11px] leading-4 text-ink-3">
             保存只影响下一轮派发；已在跑的 run 不换模型
           </span>
         </div>
         {notice && <div className="text-[11px] text-success">{notice}</div>}
         <ErrorLine error={fail} />
-      </div>
-    </Panel>
-  )
-}
-
-function PremisePolicyPanel() {
-  const policy = useLoad(api.premisePolicy, [])
-  const [choice, setChoice] = useState<PremisePolicy>('standard')
-  const [busy, setBusy] = useState(false)
-  const [fail, setFail] = useState<unknown>(null)
-  const [notice, setNotice] = useState('')
-
-  // The server row is the only source of truth: the editor mirrors what was
-  // read, and a save only updates it with the server's response. No optimistic
-  // "saved" state — the badge would otherwise lie while the PUT is in flight.
-  useEffect(() => {
-    if (!policy.data) return
-	setChoice(policy.data.premise_policy)
-  }, [policy.data])
-
-  const saved = policy.data?.premise_policy
-  const effective = policy.data?.effective
-  const dirty = Boolean(policy.data) && choice !== saved
-
-  async function save() {
-    setBusy(true)
-    setFail(null)
-    setNotice('')
-    try {
-      const res = await api.savePremisePolicy(choice)
-      policy.setData(res)
-      setNotice(
-        `已保存：前提政策 ${premisePolicyLabel(res.premise_policy)}（实际生效 ${premisePolicyLabel(res.effective)}）。只影响之后的创建/派发。`,
-      )
-    } catch (e) {
-      setFail(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Panel
-      title="前提政策（硬前提门槛）"
-      extra={<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />}
-    >
-      <div className="space-y-2.5">
-        <Field
-          label="模式"
-          hint="决定创建/派发方向时，对 from_fact_ids 的检查强度；引用/固定不受影响"
-        >
-          <Select
-            value={choice}
-            onValueChange={(v) => setChoice(v as PremisePolicy)}
-            disabled={busy || !policy.data}
-          >
-            <SelectTrigger className="h-9 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="standard" className="text-xs">
-                标准（默认）：前提存在且未被否决
-              </SelectItem>
-              <SelectItem value="strict" className="text-xs">
-                严格：vuln/cred 前提必须已复核通过
-              </SelectItem>
-              <SelectItem value="verified_only" className="text-xs">
-                证明优先：全部必要前提须独立核验
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-
-        {policy.error && (
-          <Callout tone="destructive">
-            <div className="flex flex-wrap items-center gap-2">
-              <span>读前提政策失败：{policy.error}</span>
-              <Button size="xs" variant="outline" onClick={() => policy.reload()}>
-                重试
-              </Button>
-            </div>
-          </Callout>
-        )}
-
-        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <span>
-            当前保存值：
-            <span className="font-medium text-foreground">
-              {policy.data ? premisePolicyLabel(saved) : '…'}
-            </span>
-          </span>
-          {effective && effective !== saved && (
-            <span>
-              · 实际生效：
-              <span className="font-medium text-foreground">{premisePolicyLabel(effective)}</span>
-            </span>
-          )}
-          {dirty && (
-            <Badge size="sm" variant="warning">
-              未保存
-            </Badge>
-          )}
-        </div>
-
-        <div className="text-[11px] leading-relaxed text-muted-foreground">
-          {premisePolicyHint(policy.data ? choice : saved)}
-        </div>
-
-        {choice === 'strict' && (
-          <Callout tone="warning">
-            严格模式下，未复核（或复核绑定的是旧断言）的 vuln/cred 前提会让创建/派发被拒绝。这类事实可以改作引用（context_fact_ids）或固定（pinned_fact_ids），不要当硬前提。
-          </Callout>
-        )}
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="xs"
-            onClick={() => void save()}
-            disabled={busy || !policy.data || !dirty}
-          >
-            {busy ? '保存中…' : '保存政策'}
-          </Button>
-          <span className="text-[11px] text-muted-foreground">
-            只影响之后的创建/派发；已在跑的 run 不变
-          </span>
-        </div>
-
-        {fail instanceof ApiError && fail.status === 400 && (
-          <div className="text-[11px] text-muted-foreground">
-            {fail.code === 'premise_policy_invalid'
-              ? '取值不合法（premise_policy_invalid）：只能选“标准”或“严格”，服务端没有保存这次修改。'
-              : '服务端拒绝了这次修改：请选择“标准”或“严格”后重试。'}
-          </div>
-        )}
-        {fail instanceof ApiError && fail.status === 409 && (
-          <div className="text-[11px] text-muted-foreground">
-            {fail.code === 'premise_policy_unavailable'
-              ? '这个页面没有绑定项目：前提政策是项目级设置，请在项目页设置，实例级不适用。'
-              : '写入冲突：设置可能已被他人修改，刷新后重试，不要用旧值覆盖。'}
-          </div>
-        )}
-        <ErrorLine error={fail} />
-        {notice && <div className="text-[11px] text-success">{notice}</div>}
       </div>
     </Panel>
   )
@@ -961,34 +1017,41 @@ function PeerPolicyPanel() {
   return (
     <Panel
       title="消息授权（peer 策略）"
-      extra={<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />}
+      extra={<ShieldCheck className="h-3.5 w-3.5 text-ink-3" />}
     >
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         <Field
           label="模式"
           hint="open：同项目任意参与者可互发；allowlist：只允许下面列出的有向 from→to（commander 与发给自己除外）"
         >
           <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
-            <SelectTrigger className="h-9 text-xs">
+            <SelectTrigger className="h-9 text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="open" className="text-xs">
+              <SelectItem value="open" className="text-[12px]">
                 open（默认，全项目可互发）
               </SelectItem>
-              <SelectItem value="allowlist" className="text-xs">
+              <SelectItem value="allowlist" className="text-[12px]">
                 allowlist（只允许显式授权）
               </SelectItem>
             </SelectContent>
           </Select>
         </Field>
 
-        {peers.error && <Callout tone="destructive">读 peer 策略失败：{peers.error}</Callout>}
+        {peers.error && (
+          <Callout tone="destructive">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>读 peer 策略失败：{peers.error}</span>
+              <Button size="xs" variant="outline" onClick={() => peers.reload()}>重试</Button>
+            </div>
+          </Callout>
+        )}
 
         {mode === 'allowlist' && (
           <div className="space-y-1.5">
             {rows.length === 0 && (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
+              <div className="tw-inset rounded-md px-2.5 py-2 text-[12px] text-ink-2">
                 allowlist 为空 = 除 commander 通道外都不能互发。用「加一条」授权方向。
               </div>
             )}
@@ -998,28 +1061,28 @@ function PeerPolicyPanel() {
                   value={r.from || undefined}
                   onValueChange={(v) => setRow(i, { from: v })}
                 >
-                  <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+                  <SelectTrigger className="h-8 min-w-0 flex-1 text-[12px]">
                     <SelectValue placeholder="from" />
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((p) => (
-                      <SelectItem key={p.id} value={p.id} className="text-xs">
+                      <SelectItem key={p.id} value={p.id} className="text-[12px]">
                         <span className="font-mono">{p.id}</span>
-                        <span className="ml-2 text-[10px] text-muted-foreground">{p.title}</span>
+                        <span className="ml-2 text-[11px] text-ink-3">{p.title}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <span className="shrink-0 text-[11px] text-muted-foreground">→</span>
+                <span className="shrink-0 text-[11px] text-ink-3">→</span>
                 <Select value={r.to || undefined} onValueChange={(v) => setRow(i, { to: v })}>
-                  <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+                  <SelectTrigger className="h-8 min-w-0 flex-1 text-[12px]">
                     <SelectValue placeholder="to" />
                   </SelectTrigger>
                   <SelectContent>
                     {options.map((p) => (
-                      <SelectItem key={p.id} value={p.id} className="text-xs">
+                      <SelectItem key={p.id} value={p.id} className="text-[12px]">
                         <span className="font-mono">{p.id}</span>
-                        <span className="ml-2 text-[10px] text-muted-foreground">{p.title}</span>
+                        <span className="ml-2 text-[11px] text-ink-3">{p.title}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1030,17 +1093,18 @@ function PeerPolicyPanel() {
                   className="shrink-0"
                   onClick={() => removeRow(i)}
                   title="删除这条方向"
+                  aria-label="删除这条方向"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
             ))}
             <div className="flex flex-wrap items-center gap-2 pt-0.5">
-              <Button size="xs" variant="outline" onClick={addRow} disabled={options.length === 0}>
+              <Button size="sm" variant="outline" onClick={addRow} disabled={options.length === 0}>
                 加一条
               </Button>
               {options.length === 0 && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[11px] text-ink-3">
                   还没有参与者：先造一个人，再设置 who→who。
                 </span>
               )}
@@ -1048,8 +1112,9 @@ function PeerPolicyPanel() {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={save} disabled={busy || !peers.data}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={save} disabled={busy || !peers.data}>
+            {busy && <Spinner size="sm" className="text-ink-2" />}
             {busy ? '保存中…' : '保存策略'}
           </Button>
           {notice && <span className="text-[11px] text-success">{notice}</span>}

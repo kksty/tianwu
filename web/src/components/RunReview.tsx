@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Bot, ChevronRight, Wrench } from 'lucide-react'
+import { EmptyState } from '@cyber/ui'
 import { fmtInt } from '@/lib/format'
 import {
   buildRunReview,
@@ -23,6 +24,14 @@ const STATE_CLASS: Record<ReviewState, string> = {
   failed: 'text-destructive',
   running: 'text-info',
   interrupted: 'text-warning',
+}
+
+/** The review's state marker is a small tinted dot + label, never a full row. */
+const STATE_DOT: Record<ReviewState, string> = {
+  completed: 'bg-success',
+  failed: 'bg-destructive',
+  running: 'bg-info animate-pulse',
+  interrupted: 'bg-warning',
 }
 
 /**
@@ -63,49 +72,52 @@ export function RunReview({
 
   return (
     <details
-      className="mb-1 rounded-lg border border-border/60 bg-background/40"
+      className="mb-1 overflow-hidden rounded-lg border border-hairline bg-surface-2/40"
       data-testid="run-review"
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 text-[12px] [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-[12px] transition-colors hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
         <ChevronRight
-          className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+          className={`h-3.5 w-3.5 shrink-0 text-ink-3 transition-transform ${open ? 'rotate-90' : ''}`}
         />
-        <span className="font-medium text-foreground/85">执行审查</span>
-        {counts.length > 0 && <span className="truncate text-muted-foreground">{counts.join(' · ')}</span>}
-        <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground" title={tokenTitle}>
+        <span className="font-medium text-ink">执行审查</span>
+        {counts.length > 0 && <span className="truncate text-[11px] text-ink-3">{counts.join(' · ')}</span>}
+        <span className="tw-nums ml-auto shrink-0 font-mono text-[11px] text-ink-3" title={tokenTitle}>
           {fmtInt(tokens)} tok
         </span>
       </summary>
       {open && (
         <>
           <div
-            className="flex items-center gap-1 border-t border-border/50 px-2 py-1"
+            className="flex items-center gap-1.5 border-t border-hairline px-2 py-1.5"
             role="group"
             aria-label="复盘排序"
           >
-            <span className="text-[10px] text-muted-foreground">排序</span>
+            <span className="text-[11px] text-ink-3">排序</span>
             {(['time', 'tokens'] as const).map((value) => (
               <button
                 key={value}
                 type="button"
                 aria-pressed={order === value}
                 onClick={() => setOrder(value)}
-                className={`rounded px-1.5 py-0.5 text-[11px] transition-colors ${
-                  order === value ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
+                className={`h-6 rounded px-1.5 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                  order === value ? 'bg-surface-3 font-medium text-ink' : 'text-ink-3 hover:bg-surface-2 hover:text-ink'
                 }`}
               >
                 {value === 'time' ? '时间' : '令牌'}
               </button>
             ))}
-            <span className="ml-auto text-[10px] text-muted-foreground">{review.entries.length} 项</span>
+            <span className="tw-nums ml-auto font-mono text-[11px] text-ink-3">{review.entries.length} 项</span>
           </div>
           {review.entries.length === 0 ? (
-            <div className="border-t border-border/50 px-2 py-2 text-[11px] text-muted-foreground">
-              这段日志里还没有工具调用或模型用量。
-            </div>
+            <EmptyState
+              compact
+              title="还没有可审查的调用"
+              description="这段日志里还没有工具调用或模型用量；事件会在记录后出现在这里。"
+              className="border-t border-hairline"
+            />
           ) : (
-            <ol className="border-t border-border/50 p-1">
+            <ol className="divide-y divide-hairline border-t border-hairline p-1">
               {ordered.map((entry) => (
                 <li key={entry.key} data-review-key={entry.key} data-state={entry.state}>
                   <ReviewRow entry={entry} selected={focusIndex === entry.eventIndex} onSelect={onSelect} />
@@ -113,7 +125,7 @@ export function RunReview({
               ))}
             </ol>
           )}
-          <p className="border-t border-border/50 px-2 py-1 text-[10px] leading-relaxed text-muted-foreground">
+          <p className="border-t border-hairline px-2 py-1.5 text-[11px] leading-relaxed text-ink-3">
             点击条目定位到原始事件。仅统计已报告的模型用量；工具返回不代表验证通过，未收到结果不代表未执行。
           </p>
         </>
@@ -138,26 +150,29 @@ function ReviewRow({
       type="button"
       onClick={() => onSelect(entry.eventIndex)}
       aria-pressed={selected}
-      className={`flex w-full items-start gap-2 rounded px-1.5 py-1 text-left transition-colors ${
-        selected ? 'bg-primary/10' : 'hover:bg-accent/60'
+      className={`flex w-full items-start gap-2 rounded px-1.5 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+        selected ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
       }`}
     >
-      <span className="mt-0.5 w-4 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+      <span className="tw-nums mt-0.5 w-4 shrink-0 text-right font-mono text-[11px] text-ink-3">
         {entry.order}
       </span>
-      <Icon className={`mt-0.5 h-3 w-3 shrink-0 ${STATE_CLASS[entry.state]}`} />
+      <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${STATE_CLASS[entry.state]}`} />
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-x-1.5">
-          <span className="truncate text-[11.5px] font-medium text-foreground/85">{entry.label}</span>
-          <span className={`shrink-0 text-[10px] ${STATE_CLASS[entry.state]}`}>{STATE_LABEL[entry.state]}</span>
+          <span className="truncate text-[12px] font-medium text-ink">{entry.label}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-[11px]">
+            <span className={`h-1.5 w-1.5 rounded-full ${STATE_DOT[entry.state]}`} aria-hidden />
+            <span className={STATE_CLASS[entry.state]}>{STATE_LABEL[entry.state]}</span>
+          </span>
         </span>
         {entry.evidence && (
-          <span className="tw-break mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+          <span className="tw-break mt-0.5 block text-[11px] leading-snug text-ink-3">
             {entry.evidence}
           </span>
         )}
       </span>
-      <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[10px] leading-tight text-muted-foreground">
+      <span className="tw-nums flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px] leading-tight text-ink-3">
         {entry.kind === 'tool' && entry.elapsedMs !== undefined && <span>{fmtReviewElapsed(entry.elapsedMs)}</span>}
         {hasUsage && (
           <span>

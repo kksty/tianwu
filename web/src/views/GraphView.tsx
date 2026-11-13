@@ -591,29 +591,42 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const pauseReason = paused ? (board?.decider.paused_reason ?? '') : ''
   const finished = pauseReason.includes('目标已完成')
 
+  // The board counters are a quiet meta line, not chips: label at 11px ink-3,
+  // the number mono/tabular at ink-2, groups separated by a hairline. They sit
+  // on the header's lower row next to the snapshot/live/token meta, so the top
+  // row stays "what can I do" and never competes with the title.
   const stats = view === 'overview' ? null : (
-    <div className="hidden h-7 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 font-mono text-[11px] text-muted-foreground xl:flex">
-      <span>
-        意图 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.intents.total)}</b>
+    <div className="hidden min-h-8 items-center gap-2.5 text-[11px] leading-4 text-ink-3 xl:flex">
+      <span className="inline-flex items-baseline gap-1.5">
+        意图
+        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.intents.total)}</b>
       </span>
-      <span className="h-3 w-px bg-border/70" aria-hidden />
-      <span>
-        事实 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.facts.total)}</b>
+      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
+      <span className="inline-flex items-baseline gap-1.5">
+        事实
+        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.facts.total)}</b>
       </span>
-      <span className="h-3 w-px bg-border/70" aria-hidden />
-      <span>
-        证据 <b className="text-[11px] font-semibold text-foreground">{fmtInt(board?.evidence)}</b>
+      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
+      <span className="inline-flex items-baseline gap-1.5">
+        证据
+        <b className="tw-nums font-mono text-[11px] font-semibold text-ink-2">{fmtInt(board?.evidence)}</b>
       </span>
-      <span className="h-3 w-px bg-border/70" aria-hidden />
-      <span className={running > 0 ? 'text-primary' : ''}>
-        在跑 <b className="text-[11px] font-semibold">{running}</b>
+      <span className="h-3 w-px shrink-0 bg-hairline" aria-hidden />
+      <span className="inline-flex items-baseline gap-1.5">
+        在跑
+        <b
+          className={`tw-nums font-mono text-[11px] font-semibold ${running > 0 ? 'text-primary' : 'text-ink-2'}`}
+        >
+          {running}
+        </b>
       </span>
     </div>
   )
 
   // The project-wide controls ride in every page banner (ProjectChromeContext),
-  // so the kill switch is never buried in one view. One button size and one row:
-  // state-changing controls first, the primary "新建意图" last on the right.
+  // so the kill switch is never buried in one view. One compact size (h-8) and
+  // one hierarchy: a single primary CTA (新建意图) on the right, the rest
+  // outline/ghost so the header has one thing to click first.
   const controls = (
     <>
       {finished && (
@@ -624,8 +637,8 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       {board && (
         <Button
           size="sm"
-          variant={paused ? 'soft' : 'outline'}
-          className="h-7 px-2.5 text-[12px]"
+          variant="outline"
+          className="gap-1.5"
           onClick={toggleProject}
           disabled={pausing}
           title={
@@ -636,7 +649,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
               : '暂停项目：停止指挥官，并取消所有正在跑的 run'
           }
         >
-          {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+          {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
           <span className="whitespace-nowrap">{paused ? '继续项目' : '暂停项目'}</span>
         </Button>
       )}
@@ -646,19 +659,19 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
       {paused && (board?.goals.total ?? 0) > 0 && (
         <Button
           size="sm"
-          variant="outline"
-          className="h-7 px-2.5 text-[12px]"
+          variant="ghost"
+          className="gap-1.5"
           onClick={() => setAppendGoalOpen(true)}
           title="追加一个新的独立目标，并按这次显式操作恢复派发；旧目标的完成收据保持不变。普通消息不会自动恢复暂停的项目。"
         >
-          <Target className="h-3.5 w-3.5" />
+          <Target className="h-4 w-4" />
           <span className="whitespace-nowrap">追加目标并继续</span>
         </Button>
       )}
       <Button
         size="sm"
-        variant="soft"
-        className="h-7 px-2.5 text-[12px]"
+        variant="outline"
+        className="gap-1.5"
         onClick={decideRound}
         disabled={deciding || !board?.decider.enabled || paused}
         title={
@@ -669,11 +682,20 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
               : '让指挥官立刻跑一轮'
         }
       >
-        <Play className="h-3.5 w-3.5" />
+        <Play className="h-4 w-4" />
         <span className="whitespace-nowrap">跑一轮</span>
       </Button>
-      <Button size="sm" className="h-7 px-2.5 text-[12px]" onClick={() => setCreating(true)}>
-        <Plus className="h-3.5 w-3.5" />
+      {/* One saturated action per page: the graph page itself has no other
+          primary, so 新建意图 owns the accent there. Every other panel has its
+          own page-level CTA (新建目标 / 造一个人 / 下发 …); the shared chrome
+          drops to `soft` so the banner never shows two red buttons. */}
+      <Button
+        size="sm"
+        className="gap-1.5"
+        variant={view === 'graph' ? 'default' : 'soft'}
+        onClick={() => setCreating(true)}
+      >
+        <Plus className="h-4 w-4" />
         <span className="whitespace-nowrap">新建意图</span>
       </Button>
     </>
@@ -688,7 +710,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
         context={
           <Select value={current} onValueChange={switchProject}>
             <SelectTrigger
-              className="h-9 w-full border-input/80 bg-background/60 text-[12px]"
+              className="h-9 w-full border-hairline bg-surface-2/60 text-[12px] text-ink-2"
               aria-label="切换项目"
               title={projects.find((p) => p.id === current)?.scope || '范围未指定'}
             >
@@ -707,11 +729,11 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           <Button
             size="sm"
             variant="ghost"
-            className="w-full justify-start gap-2 text-muted-foreground"
+            className="w-full justify-start gap-2 text-ink-2"
             onClick={() => window.location.assign('/g/')}
             title="项目、全局漏洞库、POC 库与模型设置"
           >
-            <Globe className="h-4 w-4" />
+            <Globe className="h-4 w-4 text-ink-3" />
             全局控制台
           </Button>
         }
@@ -719,9 +741,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
         <nav aria-label="项目导航" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-4">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="mb-2 px-3 text-[10px] font-medium tracking-[0.12em] text-muted-foreground/80">
-                {group.label}
-              </div>
+              <div className="tw-eyebrow mb-2 px-3">{group.label}</div>
               <div className="space-y-0.5">
                 {group.items.map((id) => {
                   const item = NAV.find((entry) => entry.id === id)!

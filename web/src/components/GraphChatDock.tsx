@@ -37,49 +37,72 @@ export function GraphChatDock({
   return (
     <div
       data-graph-chat
-      className="absolute bottom-12 right-3 top-[56px] flex w-[340px] flex-col overflow-hidden rounded-lg border border-border bg-card/95 shadow-elevated backdrop-blur"
+      className="absolute bottom-12 right-3 top-[56px] flex w-[340px] flex-col overflow-hidden rounded-xl border border-hairline bg-card shadow-elevated"
     >
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-2">
-        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-xs font-medium">下发</span>
-        <span className="min-w-0 truncate text-[10px] text-muted-foreground">一次性提示 / 持续指令 / 换向</span>
-        <Button size="icon-xs" variant="ghost" className="ml-auto shrink-0" title="收下方面板" onClick={onClose}>
-          <X className="h-3 w-3" />
+      <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-surface-1/60 px-4 py-2.5">
+        <MessageSquare className="h-4 w-4 shrink-0 text-ink-3" />
+        <div className="min-w-0">
+          <div className="tw-section-title">最近对话</div>
+          <div className="truncate text-[11px] leading-4 text-ink-3">最近 6 条 · 完整记录在通信页</div>
+        </div>
+        <button
+          type="button"
+          className="ml-auto shrink-0 rounded text-[11px] text-primary transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={onOpenConversation}
+        >
+          打开通信页
+        </button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="shrink-0"
+          title="收起下发面板"
+          aria-label="收起下发面板"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
         </Button>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-1 p-2">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span>最近对话</span>
-            <button type="button" className="ml-auto text-primary hover:underline" onClick={onOpenConversation}>
-              打开通信页
-            </button>
-          </div>
+      <ScrollArea className="min-h-0 flex-1 bg-surface-1">
+        <div className="space-y-1.5 p-2.5">
           {rows.length === 0 && !messages.loading && (
-            <p className="px-0.5 py-1 text-[11px] text-muted-foreground">还没有消息；发第一条会出现在这里。</p>
+            <div className="rounded-lg border border-dashed border-hairline px-3 py-4 text-center text-[12px] leading-relaxed text-ink-3">
+              还没有消息；发第一条会出现在这里。
+            </div>
           )}
-          {messages.error && <p className="text-[11px] text-destructive">{messages.error}</p>}
+          {messages.error && <p className="text-[12px] text-destructive">{messages.error}</p>}
           {rows.map((m) => (
-            <div key={m.id} className="rounded border border-border/50 bg-muted/15 px-2 py-1">
-              <div className="flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground">
-                <span className="text-info" title={`参与者 ${m.from_participant_id}`}>{participantName(m.from_participant_id, people)}</span>
+            <div
+              key={m.id}
+              className="rounded-lg border border-hairline bg-surface-2/60 px-2.5 py-2 transition-colors hover:bg-surface-2"
+            >
+              <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink-3">
+                <span className="text-info" title={`参与者 ${m.from_participant_id}`}>
+                  {participantName(m.from_participant_id, people)}
+                </span>
                 <span aria-hidden>→</span>
-                <span className="text-info" title={`参与者 ${m.to_participant_id}`}>{participantName(m.to_participant_id, people)}</span>
-                <span className="ml-auto shrink-0 font-mono">{fmtTime(m.created_at).slice(5)}</span>
+                <span className="text-info" title={`参与者 ${m.to_participant_id}`}>
+                  {participantName(m.to_participant_id, people)}
+                </span>
+                <span className="tw-nums ml-auto shrink-0 font-mono">{fmtTime(m.created_at).slice(5)}</span>
               </div>
-              <p className="tw-break mt-0.5 line-clamp-2 whitespace-pre-wrap text-[11px] leading-relaxed text-foreground/85">{m.text}</p>
+              <p className="tw-break mt-1 line-clamp-2 whitespace-pre-wrap text-[12px] leading-relaxed text-ink-2">
+                {m.text}
+              </p>
             </div>
           ))}
         </div>
       </ScrollArea>
-      <ChatComposer
-        paused={paused}
-        runningExecutors={runningExecutors}
-        onSent={() => {
-          messages.reload()
-          onSent()
-        }}
-      />
+      <div className="shrink-0 bg-card">
+        <ChatComposer
+          paused={paused}
+          runningExecutors={runningExecutors}
+          onSent={() => {
+            messages.reload()
+            onSent()
+          }}
+        />
+      </div>
     </div>
   )
 }

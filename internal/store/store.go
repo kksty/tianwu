@@ -595,10 +595,10 @@ func (s *Store) Evidence() []model.Evidence {
 
 // ---- goals ----
 
-// AddGoal appends one goal. It is the plain create path (commander and console
-// POST /api/goals); the explicit "append a goal and continue" path uses
-// AddGoalIdempotent so a retried request finds the goal it already created
-// instead of appending a second one.
+// AddGoal appends one goal. It is the plain create path the operator console
+// uses (the agent surface cannot create goals); the explicit "append a goal and
+// continue" path uses AddGoalIdempotent so a retried request finds the goal it
+// already created instead of appending a second one.
 func (s *Store) AddGoal(g model.Goal) (model.Goal, error) {
 	out, _, err := s.AddGoalIdempotent(g)
 	return out, err

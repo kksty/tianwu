@@ -32,38 +32,38 @@ export function RunEvidenceView({
   onSelectFact?: (factID: string) => void
 }) {
   return (
-    <div className="space-y-1.5 rounded border border-border/60 px-2 py-1.5" data-run-evidence>
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          本次运行读到的版本
-        </span>
-        <span className="ml-auto truncate font-mono text-[10px] text-muted-foreground" title={run.id}>
+    <div className="tw-inset space-y-2 rounded-md px-2.5 py-2" data-run-evidence>
+      <div className="flex items-center gap-2">
+        <span className="tw-eyebrow normal-case tracking-normal">本次运行读到的版本</span>
+        <span className="ml-auto min-w-0 truncate font-mono text-[11px] text-ink-3" title={run.id}>
           {run.id}
         </span>
       </div>
 
-      <VersionBlock
-        title="必要前提断言版本"
-        hint="冻结于派发；前提是新结论依赖的硬门槛"
-        kind="premise"
-        versions={run.premise_claim_versions}
-        facts={facts}
-        onSelectFact={onSelectFact}
-        emptyNote="这次运行没有硬前提（from_fact_ids 为空）"
-        absentNote="旧运行没有记录前提断言版本"
-      />
-      <VersionBlock
-        title="上下文记录版本"
-        hint="冻结于派发；引用/固定只影响阅读，不是派发门槛"
-        kind="context"
-        versions={run.context_fact_versions}
-        facts={facts}
-        onSelectFact={onSelectFact}
-        emptyNote="这次运行没有显式引用或固定事实"
-        absentNote="旧运行没有记录上下文版本"
-      />
+      <div className="space-y-2 divide-y divide-hairline [&>div+div]:pt-2">
+        <VersionBlock
+          title="必要前提断言版本"
+          hint="冻结于派发；前提是新结论依赖的硬门槛"
+          kind="premise"
+          versions={run.premise_claim_versions}
+          facts={facts}
+          onSelectFact={onSelectFact}
+          emptyNote="这次运行没有硬前提（from_fact_ids 为空）"
+          absentNote="旧运行没有记录前提断言版本"
+        />
+        <VersionBlock
+          title="上下文记录版本"
+          hint="冻结于派发；引用/固定只影响阅读，不是派发门槛"
+          kind="context"
+          versions={run.context_fact_versions}
+          facts={facts}
+          onSelectFact={onSelectFact}
+          emptyNote="这次运行没有显式引用或固定事实"
+          absentNote="旧运行没有记录上下文版本"
+        />
+      </div>
 
-      <div className="text-[10px] leading-relaxed text-muted-foreground">
+      <div className="border-t border-hairline pt-1.5 text-[11px] leading-relaxed text-ink-3">
         版本与事实内容在派发时冻结；之后修改事实不会改写这里。断言版本看断言是否还是同一句，记录版本看账本行是否被改过。
       </div>
     </div>
@@ -93,41 +93,39 @@ function VersionBlock({
   const state = versionSetState(versions)
   return (
     <div>
-      <div className="flex items-center gap-1.5" title={evidenceVersionHint(kind)}>
-        <span className="text-[11px] text-muted-foreground">{title}</span>
-        <Badge size="sm" variant="muted">
-          {rows.length}
-        </Badge>
+      <div className="flex items-center gap-2" title={evidenceVersionHint(kind)}>
+        <span className="text-[12px] font-medium text-ink-2">{title}</span>
+        <Badge size="sm" variant="muted" className="tw-nums font-mono">{rows.length}</Badge>
+        <span className="truncate text-[11px] text-ink-3">{hint}</span>
       </div>
-      <div className="text-[10px] text-muted-foreground">{hint}</div>
       {state === 'not_recorded' && (
-        <div className="mt-0.5 rounded border border-dashed border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        <div className="mt-1 rounded border border-dashed border-hairline px-2 py-1 text-[11px] text-ink-3">
           {absentNote}
         </div>
       )}
-      {state === 'empty' && <div className="mt-0.5 text-[11px] text-muted-foreground">{emptyNote}</div>}
+      {state === 'empty' && <div className="mt-1 text-[11px] text-ink-3">{emptyNote}</div>}
       {state === 'rows' && (
-        <div className="mt-0.5 space-y-0.5">
+        <div className="mt-1 space-y-0.5">
           {rows.map((row) => (
-            <div key={`${row.kind}:${row.id}`} className="flex items-center gap-1.5">
+            <div key={`${row.kind}:${row.id}`} className="flex items-center gap-2">
               {onSelectFact ? (
                 <button
                   type="button"
                   onClick={() => onSelectFact(row.id)}
-                  className="min-w-0 flex-1 truncate text-left text-[11px] text-info hover:underline"
+                  className="min-w-0 flex-1 truncate rounded text-left text-[12px] text-info transition-colors hover:bg-surface-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                   title={`查看事实 ${row.id}`}
                 >
                   {runEvidenceFactTitle(facts, row.id)}
                 </button>
               ) : (
-                <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/85">
+                <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
                   {runEvidenceFactTitle(facts, row.id)}
                 </span>
               )}
               <Badge
                 size="sm"
                 variant={row.version > 0 ? 'primary' : 'muted'}
-                className="shrink-0 font-mono"
+                className="tw-nums shrink-0 font-mono"
                 title={row.version > 0 ? `${row.id} 的冻结版本` : `${row.id} 没有记录版本`}
               >
                 {evidenceVersionLabel(row.kind, row.version)}

@@ -94,7 +94,7 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	// commander, not to a code count (D97). Completion is the stop rule: when
 	// the goals are stamped and no direction is open, the round noops instead
 	// of inventing more work (D102).
-	for _, needle := range []string{"name: commander", "$TW_API", "`PUT /api/state`", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "说清目标口径怎么被证据满足", "目标是否达成由你", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档"} {
+	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "`PUT /api/state`", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "证明优先模式下完成同样要通过前提准入", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档"} {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("skill body missing %q", needle)
 		}
@@ -108,6 +108,19 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	for _, banned := range []string{"85%", "80%", "150 行", "上下文占用"} {
 		if strings.Contains(string(body), banned) {
 			t.Errorf("commander skill must not hardcode context limits: found %q", banned)
+		}
+	}
+	// Goals are operator-defined: POST /api/goals (creation) is hidden from
+	// harness sessions and the old "commander maintains the global goal" wording
+	// must stay gone. Stamping completion on the operator's goal is still the
+	// commander's job, so only the creation path is banned — any
+	// POST /api/goals/<id>/... call is an id-addressed goal action, not creation.
+	// "evaluator" names a harness internal the commander session must not
+	// address, and reports belong to operator-side post-processing.
+	withoutGoalSubpaths := strings.ReplaceAll(string(body), "POST /api/goals/", "")
+	for _, banned := range []string{"POST /api/goals", "你维护全局目标", "evaluator"} {
+		if strings.Contains(withoutGoalSubpaths, banned) {
+			t.Errorf("commander skill must not carry the operator-only goal/support surface: found %q", banned)
 		}
 	}
 	// The commander's input must not carry report content: report generation and
@@ -234,6 +247,15 @@ func TestCollaborateSkillCarriesIdentityAndBoundary(t *testing.T) {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("collaborate skill missing %q", needle)
 		}
+	}
+	// Report/verification runs and the review queue are operator-side
+	// post-processing: the executor skill must not name the harness evaluator,
+	// and the endpoint goal is the operator's — the executor only reads it.
+	if strings.Contains(string(body), "evaluator") {
+		t.Error("collaborate skill must not expose the harness evaluator")
+	}
+	if !strings.Contains(string(body), "不创建、改写或追加目标") {
+		t.Error("collaborate skill must say executors do not create, rewrite or append goals")
 	}
 	// Like the commander skill, the executor skill must not encode context
 	// percentages: a run is not shown its own usage, so an "80%/85%" rule is

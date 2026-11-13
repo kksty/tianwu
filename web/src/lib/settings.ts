@@ -1,4 +1,4 @@
-import type { ModelProfile, ProjectInfo } from './types.ts'
+import type { ModelProfile, PremisePolicy, ProjectInfo } from './types.ts'
 
 export function profileStatus(p: Pick<ModelProfile, 'runnable' | 'probed' | 'available' | 'probe_error' | 'paused' | 'probe_kind' | 'returned_model'>) {
   if (p.paused) return { label: '已暂停', tone: 'muted' as const, detail: '此配置不接受新运行，当前运行继续；默认调用自动选择其他可用模型，显式指定此配置需先恢复使用。' }
@@ -37,6 +37,8 @@ export type ProjectSettingsDraft = {
   max_runs: string
   round_timeout: string
   verify_auto: string
+  /** Stored hard-premise admission mode; absent rows read as standard. */
+  premise_policy: string
 }
 
 export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
@@ -46,6 +48,7 @@ export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
     worker_profile: p.worker_profile ?? '', strong_profile: p.strong_profile ?? '',
     max_runs: p.max_runs == null ? '' : String(p.max_runs), round_timeout: p.round_timeout ?? '',
     verify_auto: p.verify_auto == null ? '' : p.verify_auto ? 'on' : 'off',
+    premise_policy: p.premise_policy ?? 'standard',
   }
 }
 
@@ -62,7 +65,7 @@ export function mergeProjectSettings(previous: ProjectSettingsDraft, incoming: P
  *  Clearing the constraint document is an explicit change ('' is sent, meaning
  *  the project carries no description), never an omitted field. */
 export function projectSettingsPatch(previous: ProjectSettingsDraft, draft: ProjectSettingsDraft) {
-  const patch: { scope?: string; description?: string; worker_profile?: string; strong_profile?: string; max_runs?: number | null; round_timeout?: string; verify_auto?: boolean | null } = {}
+  const patch: { scope?: string; description?: string; worker_profile?: string; strong_profile?: string; max_runs?: number | null; round_timeout?: string; verify_auto?: boolean | null; premise_policy?: PremisePolicy } = {}
   if (draft.scope !== previous.scope) patch.scope = draft.scope
   if (draft.description !== previous.description) patch.description = draft.description
   if (draft.worker_profile !== previous.worker_profile) patch.worker_profile = draft.worker_profile
@@ -70,5 +73,6 @@ export function projectSettingsPatch(previous: ProjectSettingsDraft, draft: Proj
   if (draft.max_runs !== previous.max_runs) patch.max_runs = draft.max_runs.trim() ? nonNegativeInteger(draft.max_runs, '项目并发') : null
   if (draft.round_timeout !== previous.round_timeout) patch.round_timeout = draft.round_timeout.trim()
   if (draft.verify_auto !== previous.verify_auto) patch.verify_auto = draft.verify_auto === '' ? null : draft.verify_auto === 'on'
+  if (draft.premise_policy !== previous.premise_policy) patch.premise_policy = draft.premise_policy as PremisePolicy
   return patch
 }

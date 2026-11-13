@@ -171,7 +171,7 @@ export function CreateChildIntentDialog({
                     <SelectItem key={p.id} value={p.id} className="text-xs">
                       <span className="font-mono">{p.id}</span>
                       {p.model ? (
-                        <span className="ml-2 text-[11px] text-muted-foreground">{p.model}</span>
+                        <span className="ml-2 text-[11px] text-ink-3">{p.model}</span>
                       ) : null}
                     </SelectItem>
                   ))}
@@ -183,7 +183,7 @@ export function CreateChildIntentDialog({
             label="幂等键（自动生成）"
             hint="同一对话框内保持不变：重试用同一个键会找回这个子任务，不会重复创建"
           >
-            <div className="tw-break font-mono text-[10.5px] text-muted-foreground">{key}</div>
+            <div className="tw-break font-mono text-[11px] text-ink-3">{key}</div>
           </Field>
 
           {error && <Callout tone="destructive">{error}</Callout>}

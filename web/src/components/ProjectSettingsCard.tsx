@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, Callout, Field, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@cyber/ui'
+import { Badge, Button, Callout, Field, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner, Textarea } from '@cyber/ui'
 import { Panel } from './Page'
 import { api } from '@/lib/api'
 import { DEFAULT_PROJECT_CONSTRAINTS } from '@/lib/project-defaults'
+import { premisePolicyHint, premisePolicyLabel } from '@/lib/format'
 import { durationLabel, mergeProjectSettings, projectSettingsDraft, projectSettingsPatch } from '@/lib/settings'
-import type { ModelProfile, ProjectInfo } from '@/lib/types'
+import type { ModelProfile, PremisePolicy, ProjectInfo } from '@/lib/types'
 
 const INHERIT = '__inherit'
 
+/**
+ * One project's defaults. Every field is optional: an empty value means "follow
+ * the instance", and the effective value is spelled out in the hint so the
+ * operator never has to guess what a blank will do at dispatch time.
+ */
 export function ProjectSettingsCard({ project, profiles, active, defaults, onSaved, onDirty }: {
   project: ProjectInfo
   profiles: ModelProfile[]
@@ -37,7 +43,7 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
     const missing = draft[key] && !profiles.some(p => p.id === draft[key])
     return <Field label={label} hint={`实际使用：${draft[key] || active || '实例默认尚未配置'}`}>
       <Select value={draft[key] || INHERIT} onValueChange={value => setDraft(current => ({ ...current, [key]: value === INHERIT ? '' : value }))} disabled={busy}>
-        <SelectTrigger className="w-full min-w-0 text-xs" aria-label={`${project.name} 的${label}`}><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-full min-w-0 text-[12px]" aria-label={`${project.name} 的${label}`}><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value={INHERIT}>跟随实例默认{active ? ` · ${active}` : ''}</SelectItem>
           {missing && <SelectItem value={draft[key]} disabled>{draft[key]}（配置已缺失）</SelectItem>}
@@ -59,7 +65,7 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
       const saved = await api.updateProject(project.id, patch)
       baseline.current = projectSettingsDraft(saved)
       setDraft(baseline.current)
-      setNote('已保存。简报与约束用于之后的派发和决策；模型与并发用于后续派发，单轮时限用于下一轮决策，复核策略用于后续结算。')
+      setNote('已保存。简报与约束用于之后的派发和决策；模型与并发用于后续派发，单轮时限用于下一轮决策，复核策略用于后续结算，前提政策只影响之后的创建/派发。')
       onSaved()
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { lock.current = false; setBusy(false) }
@@ -67,11 +73,17 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
 
   const worker = draft.worker_profile || active
   const commander = draft.strong_profile || active
-  return <Panel title={<span className="text-sm">{project.name}</span>} extra={<div className="flex flex-wrap gap-2">
-    <Badge variant="muted">执行中 {project.running}</Badge>
-    {dirty && <Badge variant="warning">未保存</Badge>}
-  </div>} bodyClassName="space-y-4">
-    <div className="break-all font-mono text-[11px] text-muted-foreground">{project.id}</div>
+  return <Panel
+    title={<span className="break-all">{project.name}</span>}
+    extra={
+      <div className="flex flex-wrap items-center justify-end gap-1.5">
+        <Badge variant="muted" size="sm">执行中 {project.running}</Badge>
+        {dirty && <Badge variant="warning" size="sm">未保存</Badge>}
+      </div>
+    }
+    bodyClassName="space-y-4"
+  >
+    <div className="break-all font-mono text-[11px] leading-4 text-ink-3">{project.id}</div>
     <fieldset disabled={busy} className="min-w-0 space-y-4">
       <Field
         label="任务简报 / 授权边界"
@@ -98,7 +110,7 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
           placeholder="留空 = 本项目不附带约束文档"
         />
       </Field>
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
         <Button
           type="button"
           size="xs"
@@ -117,13 +129,13 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
         >
           清空（取消约束文档）
         </Button>
-        <span>{draft.description.trim().length} 字符</span>
+        <span className="tw-nums ml-auto">{draft.description.trim().length} 字符</span>
       </div>
       <div className="grid min-w-0 gap-4 md:grid-cols-2">
         {modelSelect('strong_profile', '指挥官模型')}
         {modelSelect('worker_profile', '执行者默认模型')}
       </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline bg-surface-2/40 px-3 py-2 text-[11px] leading-4 text-ink-3">
         <span>{worker && commander && worker === commander ? '当前共用同一模型配置' : '按任务选择配置，职责与模型档位独立'}</span>
         <Button type="button" size="xs" variant="outline" disabled={busy || !commander || !profiles.some(p => p.id === commander && p.runnable && !(p.probed && !p.available))}
           onClick={() => setDraft(current => ({ ...current, worker_profile: current.strong_profile }))}>执行者与指挥官相同</Button>
@@ -146,12 +158,27 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
             </SelectContent>
           </Select>
         </Field>
+        <Field label="前提政策（硬前提门槛）" hint={premisePolicyHint(draft.premise_policy)}>
+          <Select value={draft.premise_policy} disabled={busy} onValueChange={value => setDraft(current => ({ ...current, premise_policy: value as PremisePolicy }))}>
+            <SelectTrigger aria-label={`${project.name} 的前提政策`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="standard">标准（默认）：前提存在且未被否决</SelectItem>
+              <SelectItem value="verified_only">证明优先：全部必要前提须独立核验</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => void save()} disabled={busy || !dirty}>{busy ? '保存中…' : '保存项目设置'}</Button>
+      <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
+        <Button size="sm" variant="soft" onClick={() => void save()} disabled={busy || !dirty} aria-busy={busy}>
+          {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}
+          {busy ? '保存中…' : '保存项目设置'}
+        </Button>
         <Button size="sm" variant="ghost" disabled={busy || !dirty} onClick={() => { setDraft(baseline.current); setError(''); setNote('') }}>撤销改动</Button>
       </div>
     </fieldset>
-    <div aria-live="polite">{note && <Callout tone="success">{note}</Callout>}{error && <Callout tone="destructive">{error}</Callout>}</div>
+    <div aria-live="polite" className="space-y-2">
+      {note && <Callout tone="success">{note}</Callout>}
+      {error && <Callout tone="destructive">保存失败：{error}</Callout>}
+    </div>
   </Panel>
 }

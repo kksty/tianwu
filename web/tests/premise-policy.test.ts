@@ -39,14 +39,14 @@ test(
     async (calls) => {
       const read = await api.premisePolicy()
       assert.deepEqual(read, { premise_policy: 'standard', effective: 'standard' })
-      const saved = await api.savePremisePolicy('strict')
-      assert.deepEqual(saved, { premise_policy: 'strict', effective: 'strict' })
+      const saved = await api.savePremisePolicy('verified_only')
+      assert.deepEqual(saved, { premise_policy: 'verified_only', effective: 'verified_only' })
       assert.deepEqual(calls, [
         { url: '/p/fixture/api/premise-policy', method: 'GET', body: undefined },
         {
           url: '/p/fixture/api/premise-policy',
           method: 'PUT',
-          body: { premise_policy: 'strict' },
+          body: { premise_policy: 'verified_only' },
         },
       ])
     },
@@ -55,7 +55,7 @@ test(
         JSON.stringify(
           calls.length === 1
             ? { premise_policy: 'standard', effective: 'standard' }
-            : { premise_policy: 'strict', effective: 'strict' },
+            : { premise_policy: 'verified_only', effective: 'verified_only' },
         ),
       ),
   ),
@@ -69,14 +69,14 @@ test(
         assert.ok(error instanceof ApiError)
         assert.equal(error.status, 400)
         assert.equal(error.code, 'premise_policy_invalid')
-        assert.match(error.message, /standard 或 strict/)
+        assert.match(error.message, /standard 或 verified_only/)
         return true
       })
     },
     () =>
       new Response(
         JSON.stringify({
-          error: 'premise_policy 只能是 standard 或 strict（收到 "sometimes"）',
+          error: 'premise_policy 只能是 standard 或 verified_only（收到 "sometimes"）',
           code: 'premise_policy_invalid',
         }),
         { status: 400 },
@@ -88,7 +88,7 @@ test(
   'an unbound project is a 409 premise_policy_unavailable, distinct from a bad value',
   withFixture(
     async () => {
-      await assert.rejects(api.savePremisePolicy('strict'), (error: unknown) => {
+      await assert.rejects(api.savePremisePolicy('verified_only'), (error: unknown) => {
         assert.ok(error instanceof ApiError)
         assert.equal(error.status, 409)
         assert.equal(error.code, 'premise_policy_unavailable')
@@ -106,18 +106,18 @@ test(
   ),
 )
 
-test('the policy labels and explanations keep standard and strict distinct', () => {
+test('the policy labels and explanations keep the two remaining modes distinct', () => {
   assert.equal(premisePolicyLabel('standard'), '标准')
-  assert.equal(premisePolicyLabel('strict'), '严格')
+  assert.equal(premisePolicyLabel('verified_only'), '证明优先')
   assert.equal(premisePolicyLabel(undefined), '—')
   assert.equal(premisePolicyLabel('something-else'), 'something-else')
 
   const standard = premisePolicyHint('standard')
-  const strict = premisePolicyHint('strict')
+  const verified = premisePolicyHint('verified_only')
   assert.match(standard, /存在且未被否决/)
-  assert.match(strict, /vuln\/cred/)
-  assert.match(strict, /复核/)
-  assert.notEqual(standard, strict)
+  assert.match(verified, /必要前提/)
+  assert.match(verified, /核验/)
+  assert.notEqual(standard, verified)
   // An unknown/empty policy has no invented explanation.
   assert.equal(premisePolicyHint(undefined), '')
 })

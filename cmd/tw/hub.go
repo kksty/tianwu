@@ -132,8 +132,16 @@ type hub struct {
 
 func newHub(ctx context.Context, cfg hubConfig, mgr *project.Manager,
 	st *settings.Store, lib *pocs.Store, vulns *vulnlib.Library) *hub {
+	// The review/report gate is instance-wide and its capacity is a persisted
+	// runtime setting. It is created once here and only resized afterwards: the
+	// verifier and report generators capture the pointer, so replacing it on a
+	// settings save would keep routing new work through the old gate.
+	auxCapacity := 1
+	if st != nil {
+		auxCapacity = st.RuntimeSettings().AuxiliaryConcurrency
+	}
 	return &hub{
-		auxiliaryGate: executor.NewGate(1),
+		auxiliaryGate: executor.NewGate(auxCapacity),
 		cfg:           cfg,
 		mgr:           mgr,
 		ctx:           ctx,
@@ -768,6 +776,8 @@ func (h *hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"version": buildVersion})
 	case r.URL.Path == "/api/settings":
 		h.serveSettings(w, r)
+	case r.URL.Path == "/api/runtime-settings":
+		h.serveRuntimeSettings(w, r)
 	case r.URL.Path == "/api/models":
 		h.serveModels(w, r)
 	case r.URL.Path == "/api/model-catalogue":
@@ -838,6 +848,9 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		// Save fills the runtime block from the stored file under writeMu, so this
+		// model-only save cannot clobber a concurrent PUT /api/runtime-settings
+		// with a snapshot taken before it (the value is a separate instance knob).
 		if err := h.settings.Save(settings.File{Model: next}); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
@@ -849,6 +862,71 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, h.settings.View())
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET / PUT"})
+	}
+}
+
+// runtimeSettingsView is the console's read of the instance runtime knobs.
+// MaxAuxiliaryConcurrency is read-only metadata: the console renders the slider
+// bound from it instead of hardcoding 8.
+type runtimeSettingsView struct {
+	AuxiliaryConcurrency    int `json:"auxiliary_concurrency"`
+	MaxAuxiliaryConcurrency int `json:"max_auxiliary_concurrency"`
+}
+
+// serveRuntimeSettings edits the instance-level knobs that live outside the
+// harness profile (currently the review/report concurrency). It sits on the
+// operator surface, not under /p/<id>/: the gate is process-wide, so the value
+// is not a per-project setting. A PUT persists first and then resizes the live
+// gate; in-flight reviews keep their acquired slot, so the new bound applies to
+// new acquisitions without restarting the instance.
+func (h *hub) serveRuntimeSettings(w http.ResponseWriter, r *http.Request) {
+	if h.settings == nil || h.auxiliaryGate == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "运行时设置不可用：设置存储或并发闸门未初始化"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, h.runtimeSettingsView())
+	case http.MethodPut:
+		var in struct {
+			// A pointer tells "missing" apart from a present 0, which must be a
+			// 400 rather than a silent default.
+			AuxiliaryConcurrency *int `json:"auxiliary_concurrency"`
+		}
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法的运行时设置：" + err.Error()})
+			return
+		}
+		if in.AuxiliaryConcurrency == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "缺少 auxiliary_concurrency 字段"})
+			return
+		}
+		next := settings.Runtime{AuxiliaryConcurrency: *in.AuxiliaryConcurrency}
+		if err := next.Validate(); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		if err := h.settings.SetRuntime(next); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		// The gate pointer is stable (verifier/report closures capture it), so
+		// this resize is what makes the save live.
+		h.auxiliaryGate.SetCapacity(next.AuxiliaryConcurrency)
+		writeJSON(w, http.StatusOK, h.runtimeSettingsView())
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET / PUT"})
+	}
+}
+
+// runtimeSettingsView is the GET/PUT response: the effective value plus the
+// maximum a PUT may set.
+func (h *hub) runtimeSettingsView() runtimeSettingsView {
+	return runtimeSettingsView{
+		AuxiliaryConcurrency:    h.settings.RuntimeSettings().AuxiliaryConcurrency,
+		MaxAuxiliaryConcurrency: settings.MaxAuxiliaryConcurrency,
 	}
 }
 
@@ -1191,6 +1269,12 @@ type projectInfo struct {
 	// actually use (D100).
 	VerifyAuto          *bool `json:"verify_auto"`
 	VerifyAutoEffective bool  `json:"verify_auto_effective"`
+	// PremisePolicy is the project's stored admission mode (standard or
+	// verified_only; a legacy manifest that still says strict reads as
+	// verified_only). Unlike verify_auto there is no instance value to inherit:
+	// an absent manifest policy is standard, and the console edits it with the
+	// other project defaults.
+	PremisePolicy string `json:"premise_policy"`
 }
 
 func (h *hub) info(p *project.Project) projectInfo {
@@ -1209,6 +1293,7 @@ func (h *hub) info(p *project.Project) projectInfo {
 	out.WorkerProfile, out.StrongProfile = p.ProfileDefaults()
 	out.RoundTimeout = p.RoundTimeoutRaw()
 	out.VerifyAutoEffective = h.projectVerifyAuto(p)
+	out.PremisePolicy = p.PremisePolicyView()
 	if v, ok := p.VerifyAutoOverride(); ok {
 		out.VerifyAuto = &v
 	}
@@ -1282,9 +1367,14 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			// actions, platform rules, how to treat target output. The program
 			// carries it into every brief and never parses it (D59).
 			Description string `json:"description"`
-			// A project is created together with its first goal: an engagement
-			// without a statement has nothing to judge "done" against.
-			Goal             string `json:"goal"`
+			// A project is created together with the operator-defined endpoint
+			// goal: Scope is the 起点 (brief), Goal is the 终点 (statement).
+			// An engagement without a statement has nothing to judge "done"
+			// against.
+			Goal string `json:"goal"`
+			// QuantifiedTarget is the legacy quantified criterion from older
+			// consoles; the current console sends only 起点 + 终点. Kept so
+			// programmatic callers keep working.
 			QuantifiedTarget string `json:"quantified_target"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1346,7 +1436,10 @@ func (h *hub) serveProjectItem(w http.ResponseWriter, r *http.Request) {
 // null, which restores "inherit the instance --max-runs". worker_profile /
 // strong_profile accept "" to clear the project default (inherit the instance
 // active profile). verify_auto accepts null (inherit --verify-auto) or a bool
-// (D100).
+// (D100). premise_policy accepts standard / verified_only: it is the project's
+// hard-premise admission mode, stored with the other project defaults so the
+// execution page is not the only place to set it. A legacy manifest that still
+// says strict reads as verified_only; writing strict is rejected.
 func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
 		Scope         *string         `json:"scope"`
@@ -1356,6 +1449,7 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		WorkerProfile *string         `json:"worker_profile"`
 		StrongProfile *string         `json:"strong_profile"`
 		VerifyAuto    json.RawMessage `json:"verify_auto"`
+		PremisePolicy *string         `json:"premise_policy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是 JSON"})
@@ -1391,6 +1485,17 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+	}
+	var premise string
+	premiseChanged := false
+	if req.PremisePolicy != nil {
+		normalized, err := project.NormalizePremisePolicy(*req.PremisePolicy)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		premise = normalized
+		premiseChanged = normalized != p.PremisePolicyView()
 	}
 	worker, strong := p.ProfileDefaults()
 	if req.WorkerProfile != nil {
@@ -1437,6 +1542,19 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	}
+	if req.PremisePolicy != nil {
+		if _, err := h.mgr.SetPremisePolicy(id, premise); err != nil {
+			// The project was found above; it can only have disappeared in
+			// between (a concurrent delete). Report that like the sibling
+			// setters do instead of as a server error.
+			code := http.StatusInternalServerError
+			if h.mgr.Get(id) == nil {
+				code = http.StatusNotFound
+			}
+			writeJSON(w, code, map[string]any{"error": err.Error()})
+			return
+		}
+	}
 	if req.WorkerProfile != nil || req.StrongProfile != nil {
 		if err := h.mgr.SetProfileDefaults(id, worker, strong); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
@@ -1453,6 +1571,12 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		// now so the very next finished run already follows the new setting.
 		k.srv.SetAutoVerify(h.projectVerifyAuto(k.proj))
 		k.srv.SchedulePendingReviews()
+		// A stricter admission mode changes which queued directions can start;
+		// let the commander re-evaluate them without waiting for the next
+		// unrelated wake. Other project edits stay silent here.
+		if premiseChanged && k.dec != nil {
+			k.dec.Wake("premise_policy")
+		}
 		if k.dec != nil {
 			k.dec.Scope = k.srv.Briefing()
 			if name, window := k.srv.CommanderModelInfo(); name != "" {

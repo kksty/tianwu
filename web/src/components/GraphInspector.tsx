@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Badge } from '@cyber/ui'
 import { edgeKindLabel, type GraphEdge, type GraphNode } from '@/graph/model'
 import { fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
@@ -67,7 +68,7 @@ function edgeBadge(kind: GraphEdge['kind']): { label: string; variant: 'primary'
     case 'reference':
       return { label: edgeKindLabel(kind), variant: 'secondary' }
     // A pinned read is still context, never a gate; it is called out separately
-    // because the canvas draws it as a teal double line, not a dashed one.
+    // because the canvas draws it as a green double line, not a dashed one.
     case 'pin':
       return { label: edgeKindLabel(kind), variant: 'info' }
     case 'supports':
@@ -84,6 +85,45 @@ function edgeBadge(kind: GraphEdge['kind']): { label: string; variant: 'primary'
       // The produced-fact fan has no relation name; it is the direction's output.
       return { label: edgeKindLabel(kind) || 'intent', variant: 'primary' }
   }
+}
+
+/** A quiet property row: 11px label in a fixed 56px column, 13px value. */
+function Meta({
+  label,
+  value,
+  className,
+  title,
+  mono = true,
+}: {
+  label: string
+  value: string
+  className?: string
+  title?: string
+  /** False for prose (a goal's reason), where monospace hurts the reading. */
+  mono?: boolean
+}) {
+  return (
+    <div className={`flex items-baseline gap-2 py-0.5 ${className ?? ''}`} title={title}>
+      <span className="w-14 shrink-0 text-[11px] leading-4 text-ink-3">{label}</span>
+      <span
+        className={`tw-break min-w-0 flex-1 text-[13px] leading-5 text-ink-2 ${
+          mono ? 'font-mono tw-nums' : ''
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  )
+}
+
+/** One titled block inside the card: eyebrow + hairline, matching NodePanel. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-hairline pt-2 first:border-t-0 first:pt-0">
+      <div className="tw-eyebrow mb-1">{title}</div>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  )
 }
 
 /**
@@ -138,10 +178,15 @@ export function GraphInspector({
   const refCount = node?.refCount ?? fact?.refs?.length ?? 0
   const profile =
     intent?.profile || node?.resolvedProfile || (edge?.kind === 'spawn' ? intent?.profile : '') || ''
+  const resolvedModel = (node?.model ?? model) as string | undefined
 
   return (
-    <div className="pointer-events-none absolute right-3 top-[56px] w-[320px] overflow-hidden rounded-lg border border-border bg-card/95 shadow-elevated backdrop-blur">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+    // The card is a hover overlay for the canvas (pointer-events-none), so its
+    // body cannot be scrolled by the wheel. It must therefore grow with its
+    // content: a max-height clamp here would silently cut off the warning and
+    // receipt rows on short viewports.
+    <div className="pointer-events-none absolute right-3 top-[56px] flex w-[360px] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-3 py-2">
         <Badge size="sm" variant={badge.variant}>
           {badge.label}
         </Badge>
@@ -151,9 +196,9 @@ export function GraphInspector({
           </Badge>
         )}
         {status && statusText(status) && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
             <span
-              className={`h-1.5 w-1.5 rounded-full ${
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 statusKind(status) === 'success'
                   ? 'bg-success'
                   : statusKind(status) === 'error'
@@ -162,7 +207,7 @@ export function GraphInspector({
                       ? 'animate-pulse bg-info'
                       : statusKind(status) === 'warning'
                         ? 'bg-warning'
-                        : 'bg-muted-foreground'
+                        : 'bg-ink-3'
               }`}
             />
             {statusText(status)}
@@ -182,7 +227,7 @@ export function GraphInspector({
             复核的是旧断言
           </Badge>
         )}
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+        <span className="ml-auto font-mono text-[11px] text-ink-3">
           {isBoundary
             ? '引用'
             : node?.type === 'ghost'
@@ -193,24 +238,29 @@ export function GraphInspector({
         </span>
       </div>
 
-      <div className="space-y-2 px-3 py-2">
-        <div className="tw-break text-[13px] font-medium leading-snug text-foreground">{title || '（无标题）'}</div>
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-2.5">
+        <div className="tw-break text-[13px] font-semibold leading-5 text-ink">{title || '（无标题）'}</div>
         {summary && (
-          <div className="tw-break line-clamp-3 text-[11px] leading-relaxed text-muted-foreground" title={summary}>
+          /* Hovering is a request to read the node: up to eight lines of summary
+             instead of a three-line tease. Clamped so the card height stays
+             bounded (the card is pointer-transparent and cannot be scrolled). */
+          <div className="tw-break line-clamp-[8] text-[12.5px] leading-relaxed text-ink-2" title={summary}>
             {summary}
           </div>
         )}
         {isBoundary && (
           <>
-            <div className="tw-break rounded-md border border-border/60 bg-muted/25 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            <div className="tw-break rounded-lg border border-hairline bg-surface-2/60 px-2.5 py-2 text-[12px] leading-relaxed text-ink-2">
               {boundaryText(node?.boundaryState)}
             </div>
-            <div className="flex items-start gap-1.5 text-[11px] leading-relaxed">
-              <span className="shrink-0 text-muted-foreground">引用 id</span>
-              <span className="tw-break min-w-0 flex-1 font-mono text-foreground/85">{node?.boundary}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="w-14 shrink-0 text-[11px] leading-4 text-ink-3">引用 id</span>
+              <span className="tw-break min-w-0 flex-1 font-mono text-[13px] leading-5 text-ink-2">
+                {node?.boundary}
+              </span>
             </div>
             {node?.boundaryState === 'not_loaded' && (
-              <div className="text-[11px] leading-relaxed text-muted-foreground">
+              <div className="text-[12px] leading-relaxed text-ink-3">
                 在图谱里点击这个边界节点，会沿它加载邻域；它不会像事实节点那样固定详情。
               </div>
             )}
@@ -218,118 +268,123 @@ export function GraphInspector({
         )}
 
         {hasDetails && (
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border/60 pt-1.5 text-[11px]">
-          {fact && (
-            <>
-              <Meta label="置信" value={fact.confidence || '—'} />
-              <Meta label="证明" value={fact.proof ?? 'dynamic'} />
-              <Meta label="证据" value={`${evidenceCount}`} />
-              <Meta label="引用" value={`${refCount}`} />
-              <Meta label="创建" value={fmtTime(fact.created_at)} />
-              {needsReview && (
-                <Meta
-                  label="复核"
-                  value={`旧断言 · 复核 v${reviewedClaimVersion}（当前 v${currentClaimVersion}）`}
-                  className="col-span-2 text-warning"
-                  title="claim_version 高于最新复核版本：这次复核证明的不是当前断言"
-                />
-              )}
-            </>
-          )}
-          {intent && (
-            <>
-              <Meta label="尝试" value={fmtInt(intent.attempts)} />
-              <Meta label="节点" value={intent.node || '默认'} />
-              <Meta label="profile" value={profile || '默认'} />
-              {/* The model is what the operator actually wants to know; the tier
-                  is only a routing label, so it rides in the tooltip. */}
-              {node?.model || model ? (
-                <Meta
-                  label="模型"
-                  value={(node?.model ?? model) as string}
-                  className="col-span-2"
-                  title={node?.tier ? `档位 ${node.tier}` : undefined}
-                />
-              ) : null}
-              {node?.resolvedProfile && node.resolvedProfile !== profile && (
-                <Meta label="实际 profile" value={node.resolvedProfile} />
-              )}
-              {intent.parent_intent_id && <Meta label="父意图" value={intent.parent_intent_id} />}
-              {intent.delegated_by_run_id && (
-                <Meta label="委派 run" value={intent.delegated_by_run_id} />
-              )}
-              {edge?.kind === 'spawn' && edge.parentIntent && (
-                <Meta label="血缘" value={`${edge.parentIntent} → ${intent.id}`} className="col-span-2" />
-              )}
-              {intent.run_id && <Meta label="run" value={intent.run_id} />}
-              {intent.updated_at && <Meta label="更新" value={fmtTime(intent.updated_at)} />}
-              {intent.steer_count ? <Meta label="续话" value={`${intent.steer_count}`} /> : null}
-              {intent.say_count ? <Meta label="插话" value={`${intent.say_count}`} /> : null}
-              {intent.notes?.length ? <Meta label="备注" value={`${intent.notes.length}`} /> : null}
-              {intent.park_reason && <Meta label="停放" value={intent.park_reason} className="col-span-2" />}
-            </>
-          )}
-          {pulse && (
-            <>
-              <Meta label="静默" value={`${fmtInt(pulse.idle_seconds)}s`} />
-              <Meta label="事件" value={fmtInt(pulse.events)} />
-              {pulse.context_tokens ? (
-                <Meta
-                  label="上下文"
-                  value={`${fmtInt(pulse.context_tokens)} / ${fmtInt(pulse.context_window ?? 0)}`}
-                  className="col-span-2"
-                />
-              ) : null}
-              {pulse.state && <Meta label="状态" value={pulse.state} className="col-span-2" />}
-            </>
-          )}
-          {goal && (
-            <>
-              <Meta label="目标" value={goal.met ? '已达成' : '未达成'} />
-              {goal.quantified_target && <Meta label="量化" value={goal.quantified_target} className="col-span-2" />}
-              {goal.note && (
-                <Meta
-                  label="理由"
-                  value={goal.note}
-                  className="col-span-2 line-clamp-2"
-                  title={goal.note}
-                  mono={false}
-                />
-              )}
-              {goal.completed_at && (
-                <Meta label="达成" value={fmtTime(goal.completed_at)} className="col-span-2" />
-              )}
-              {/* The seal is a historical receipt: when a cited fact changed, the
-                  server says so (computed, never rewritten). Never unset met here. */}
-              {goal.receipt_stale && (
-                <Meta
-                  label="收据"
-                  value={`过时 · 所依据事实已更新${goal.receipt_changed?.length ? `：${goal.receipt_changed.join('、')}` : ''}`}
-                  className="col-span-2 text-warning"
-                  title="完成证明保留：目标仍记为已达成，但依据的断言已变，需要重新判断"
-                />
-              )}
-            </>
-          )}
-          {project && (
-            <>
-              {project.scope && <Meta label="授权边界" value={project.scope} className="col-span-2" />}
-              <Meta label="意图" value={fmtInt(project.intents)} />
-              <Meta label="事实" value={fmtInt(project.facts)} />
-            </>
-          )}
+          <div className="space-y-2.5">
+            {fact && (
+              <Section title="事实">
+                <Meta label="置信" value={fact.confidence || '—'} />
+                <Meta label="证明" value={fact.proof ?? 'dynamic'} />
+                <Meta label="证据" value={`${fmtInt(evidenceCount)}`} />
+                <Meta label="引用" value={`${fmtInt(refCount)}`} />
+                <Meta label="创建" value={fmtTime(fact.created_at)} />
+                {needsReview && (
+                  <Meta
+                    label="复核"
+                    value={`旧断言 · 复核 v${reviewedClaimVersion}（当前 v${currentClaimVersion}）`}
+                    className="text-warning"
+                    title="claim_version 高于最新复核版本：这次复核证明的不是当前断言"
+                  />
+                )}
+              </Section>
+            )}
+            {intent && (
+              <Section title="意图">
+                <Meta label="尝试" value={fmtInt(intent.attempts)} />
+                <Meta label="节点" value={intent.node || '默认'} />
+                <Meta label="profile" value={profile || '默认'} />
+                {/* The model is what the operator actually wants to know; the tier
+                    is only a routing label, so it rides in the tooltip. */}
+                {resolvedModel ? (
+                  <Meta
+                    label="模型"
+                    value={resolvedModel}
+                    title={node?.tier ? `档位 ${node.tier}` : undefined}
+                  />
+                ) : null}
+                {node?.resolvedProfile && node.resolvedProfile !== profile && (
+                  <Meta label="实际 profile" value={node.resolvedProfile} />
+                )}
+                {intent.parent_intent_id && <Meta label="父意图" value={intent.parent_intent_id} />}
+                {intent.delegated_by_run_id && (
+                  <Meta label="委派 run" value={intent.delegated_by_run_id} />
+                )}
+                {edge?.kind === 'spawn' && edge.parentIntent && (
+                  <Meta label="血缘" value={`${edge.parentIntent} → ${intent.id}`} />
+                )}
+                {intent.run_id && <Meta label="run" value={intent.run_id} />}
+                {intent.updated_at && <Meta label="更新" value={fmtTime(intent.updated_at)} />}
+                {intent.steer_count ? <Meta label="续话" value={`${intent.steer_count}`} /> : null}
+                {intent.say_count ? <Meta label="插话" value={`${intent.say_count}`} /> : null}
+                {intent.notes?.length ? <Meta label="备注" value={`${intent.notes.length}`} /> : null}
+                {intent.park_reason && <Meta label="停放" value={intent.park_reason} mono={false} />}
+              </Section>
+            )}
+            {pulse && (
+              <Section title="运行">
+                <Meta label="静默" value={`${fmtInt(pulse.idle_seconds)}s`} />
+                <Meta label="事件" value={fmtInt(pulse.events)} />
+                {pulse.context_tokens ? (
+                  <Meta
+                    label="上下文"
+                    value={`${fmtInt(pulse.context_tokens)} / ${fmtInt(pulse.context_window ?? 0)}`}
+                  />
+                ) : null}
+                {pulse.state && <Meta label="状态" value={pulse.state} />}
+              </Section>
+            )}
+            {goal && (
+              <Section title="目标">
+                <Meta label="目标" value={goal.met ? '已达成' : '未达成'} />
+                {goal.start && <Meta label="起点" value={goal.start} mono={false} />}
+                {/* Goals written by older consoles carry a quantified criterion
+                    instead of a start; show it as history rather than hide it. */}
+                {!goal.start && goal.quantified_target && (
+                  <Meta label="口径（旧记录）" value={goal.quantified_target} mono={false} />
+                )}
+                {goal.note && (
+                  <Meta
+                    label="理由"
+                    value={goal.note}
+                    className="line-clamp-2"
+                    title={goal.note}
+                    mono={false}
+                  />
+                )}
+                {goal.completed_at && <Meta label="达成" value={fmtTime(goal.completed_at)} />}
+                {/* The seal is a historical receipt: when a cited fact changed, the
+                    server says so (computed, never rewritten). Never unset met here. */}
+                {goal.receipt_stale && (
+                  <Meta
+                    label="收据"
+                    value={`过时 · 所依据事实已更新${goal.receipt_changed?.length ? `：${goal.receipt_changed.join('、')}` : ''}`}
+                    className="text-warning"
+                    title="完成证明保留：目标仍记为已达成，但依据的断言已变，需要重新判断"
+                  />
+                )}
+              </Section>
+            )}
+            {project && (
+              <Section title="项目">
+                {project.scope && <Meta label="授权边界" value={project.scope} mono={false} />}
+                <Meta label="意图" value={fmtInt(project.intents)} />
+                <Meta label="事实" value={fmtInt(project.facts)} />
+              </Section>
+            )}
+          </div>
+        )}
+
+        {!hasDetails && !isBoundary && (
+          <div className="rounded-lg border border-dashed border-hairline px-2.5 py-2 text-[12px] leading-relaxed text-ink-3">
+            悬停只显示关键属性；单击节点固定完整详情面板。
           </div>
         )}
 
         {warnings.length > 0 && (
-          <div className="space-y-1 rounded border border-warning/30 bg-warning/10 px-2 py-1.5">
-            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-warning">
-              ⚠ 告警（{warnings.length}）
-            </div>
+          <div className="space-y-1 rounded-lg border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
+            <div className="text-[11px] font-semibold text-warning">⚠ 告警（{warnings.length}）</div>
             {warnings.slice(0, 3).map((w, i) => {
               const native = /subagent/i.test(w)
               return (
-                <div key={i} className="tw-break text-[10.5px] leading-relaxed text-foreground/80">
+                <div key={i} className="tw-break text-[12px] leading-relaxed text-ink-2">
                   {native && (
                     <Badge size="sm" variant="warning" className="mr-1">
                       原生 subagent
@@ -340,13 +395,13 @@ export function GraphInspector({
               )
             })}
             {warnings.length > 3 && (
-              <div className="text-[10.5px] text-muted-foreground">…还有 {warnings.length - 3} 条，见运行页</div>
+              <div className="text-[11px] text-ink-3">…还有 {warnings.length - 3} 条，见运行页</div>
             )}
           </div>
         )}
       </div>
 
-      <div className="border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
+      <div className="shrink-0 border-t border-hairline px-3 py-1.5 text-[11px] text-ink-3">
         {isBoundary
           ? node?.boundaryState === 'not_loaded'
             ? '点开边界节点加载邻域 · 它不是孤立事实'
@@ -355,28 +410,6 @@ export function GraphInspector({
             ? '已固定 · 点击空白处取消'
             : '单击节点固定详情 · 移开鼠标即隐藏'}
       </div>
-    </div>
-  )
-}
-
-function Meta({
-  label,
-  value,
-  className,
-  title,
-  mono = true,
-}: {
-  label: string
-  value: string
-  className?: string
-  title?: string
-  /** False for prose (a goal's reason), where monospace hurts the reading. */
-  mono?: boolean
-}) {
-  return (
-    <div className={`min-w-0 ${className ?? ''}`} title={title}>
-      <span className="text-muted-foreground">{label} </span>
-      <span className={`break-all ${mono ? 'font-mono' : ''} text-foreground/85`}>{value}</span>
     </div>
   )
 }

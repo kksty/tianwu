@@ -8,6 +8,14 @@ import { useScrollMemory } from '@/lib/view-memory'
  * the live board counters and the controls that act on the whole engagement
  * (pause/resume, new direction, run a round). The project shell no longer draws
  * a second title bar of its own — one banner per page.
+ *
+ * Header hierarchy (top → bottom, strongest → weakest):
+ *   1. the page title           20px / 600 / ink-1
+ *   2. the actions              one primary CTA, the rest outline / ghost
+ *   3. the subtitle             12.5px / ink-2, capped to a readable measure
+ *   4. the eyebrow + meta chips 11px / ink-3, mono for counters
+ * The eye lands on the title, then the primary action, and only then reads the
+ * supporting counters — the inverse of a header where everything is a chip.
  */
 export interface ProjectChrome {
   stats?: ReactNode
@@ -21,8 +29,8 @@ export const ProjectChromeContext = createContext<ProjectChrome | null>(null)
 interface PageProps {
   title: string
   subtitle?: ReactNode
-  /** Status/meta chips: snapshot, live toggle, token totals. Rendered under the
-   *  primary actions so the header reads "what can I do" then "where are we". */
+  /** Status/meta chips: snapshot, live toggle, token totals. Rendered on the
+   *  lower header row so the top row reads "what can I do". */
   meta?: ReactNode
   actions?: ReactNode
   children: ReactNode
@@ -42,30 +50,38 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
   const hasMetaRow = Boolean(chrome?.stats || meta)
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      <div className="tw-page-header flex shrink-0 flex-col gap-3 border-b border-border/80 px-4 py-4 sm:px-6 lg:px-7 xl:flex-row xl:items-center xl:gap-x-6">
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="mb-1 break-words text-[10px] font-medium tracking-[0.12em] text-muted-foreground [overflow-wrap:anywhere]">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}<span className="mx-2 opacity-40">/</span>{title}</div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+      <header className="tw-page-header flex shrink-0 flex-col gap-3.5 border-b border-hairline px-5 py-4 sm:px-6 lg:px-8 xl:flex-row xl:items-start xl:gap-x-8">
+        <div className="min-w-0 flex-1">
+          <div className="tw-eyebrow flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{chrome ? (chrome.projectName || '项目工作区') : '全局控制台'}</span>
+            <span aria-hidden="true" className="text-ink-3/45">/</span>
+            <span className="truncate normal-case tracking-normal text-ink-2">{title}</span>
+          </div>
+          <h1 className="mt-1.5 break-words text-[20px] font-semibold leading-7 tracking-tight text-ink">{title}</h1>
           {subtitle && (
-            <div className="mt-1 break-words text-[12px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{subtitle}</div>
+            <div className="tw-subtitle mt-1 max-w-[760px]">{subtitle}</div>
           )}
         </div>
-        <div className="flex w-full min-w-0 flex-col items-start gap-1.5 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
+        <div className="flex w-full min-w-0 flex-col items-start gap-2 xl:ml-auto xl:w-auto xl:shrink-0 xl:items-end">
           {hasTopRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-1.5 xl:w-auto xl:justify-end">
+            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
               {chrome?.controls}
               {actions}
             </div>
           )}
           {hasMetaRow && (
-            <div className="flex w-full max-w-full flex-wrap items-center gap-1.5 xl:w-auto xl:justify-end">
+            <div className="flex w-full max-w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
               {chrome?.stats}
               {meta}
             </div>
           )}
         </div>
-      </div>
-      {chrome?.error && <div className="shrink-0 px-4 pt-3 sm:px-6" role="alert"><Callout tone="destructive">{chrome.error}</Callout></div>}
+      </header>
+      {chrome?.error && (
+        <div className="shrink-0 px-5 pt-4 sm:px-6 lg:px-8" role="alert">
+          <Callout tone="destructive">{chrome.error}</Callout>
+        </div>
+      )}
       <div
         ref={scroll ? scrollRef : null}
         // Stable handle for the acceptance scripts that check scroll memory
@@ -73,7 +89,7 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
         data-testid={scroll ? 'page-scroll' : undefined}
         className={cn(
           'min-h-0 min-w-0 flex-1',
-          scroll ? 'overflow-y-auto px-4 py-5 sm:px-6 lg:px-7' : 'overflow-hidden',
+          scroll ? 'overflow-y-auto px-5 py-5 sm:px-6 lg:px-8' : 'overflow-hidden',
           className,
         )}
       >
@@ -83,27 +99,34 @@ export function Page({ title, subtitle, meta, actions, children, scroll = true, 
   )
 }
 
-/** A titled block inside a page. Cards stay flat: the border is the structure. */
+/**
+ * A titled block inside a page. Cards stay flat: one hairline border and a
+ * card tint carry the structure — no nesting of "card inside card inside card",
+ * and no drop shadow stacked under a tinted header.
+ *
+ * Extra `<section>` attributes (`data-testid`, `aria-*`, `id`) pass through, so
+ * a page that needs a stable test hook for its card can use the real card
+ * component instead of hand-rolling a `tw-panel` section.
+ */
 export function Panel({
   title,
   extra,
   children,
   className,
   bodyClassName,
+  ...rest
 }: {
   title?: ReactNode
   extra?: ReactNode
   children: ReactNode
   className?: string
   bodyClassName?: string
-}) {
+} & Omit<React.HTMLAttributes<HTMLElement>, 'title' | 'children'>) {
   return (
-    <section className={cn('tw-panel min-w-0 rounded-xl border border-border/80 bg-card', className)}>
+    <section {...rest} className={cn('tw-panel min-w-0 rounded-xl', className)}>
       {(title || extra) && (
-        <header className="flex flex-wrap items-center gap-2 border-b border-border/65 px-4 py-3">
-          <div className="text-xs font-medium tracking-wide text-foreground/80">
-            {title}
-          </div>
+        <header className="flex flex-wrap items-center gap-2 border-b border-hairline px-4 py-3">
+          <div className="tw-section-title min-w-0">{title}</div>
           <div className="ml-auto flex items-center gap-2">{extra}</div>
         </header>
       )}

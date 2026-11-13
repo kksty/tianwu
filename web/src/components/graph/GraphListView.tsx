@@ -6,6 +6,7 @@
 // 把焦点还给主画布（data-testid="graph-canvas"）。不新增依赖。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Button, EmptyState } from '@cyber/ui'
 import type { GraphModel, GraphNode } from '@/graph/model'
 import { graphNodeOrder } from '@/lib/graph-filter'
 import { statusLabel } from '@/lib/format'
@@ -143,21 +144,26 @@ export function GraphListView({
       className="pointer-events-auto absolute inset-0 z-10 flex flex-col bg-background/95 backdrop-blur"
       data-testid="graph-list-view"
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[12px]">
-        <span className="font-semibold text-foreground">节点列表</span>
-        <span className="text-muted-foreground">{ordered.length} 个节点 · 画布的键盘等价入口</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">↑↓ 选择 · Enter 打开 · Esc 返回画布</span>
-        <button
-          type="button"
+      <div className="flex items-center gap-2 border-b border-hairline bg-card/95 px-3 py-2.5">
+        <span className="tw-section-title shrink-0">节点列表</span>
+        <span className="min-w-0 truncate text-[12px] text-ink-3">
+          <span className="tw-nums font-mono font-semibold text-ink-2">{ordered.length}</span> 个节点 · 画布的键盘等价入口
+        </span>
+        <span className="ml-auto hidden shrink-0 text-[11px] text-ink-3 md:inline">
+          ↑↓ 选择 · Enter 打开 · Esc 返回画布
+        </span>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="shrink-0"
           onClick={() => {
             onClose()
             returnFocusToCanvas()
           }}
-          className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           title="返回画布（Esc）"
         >
           关闭
-        </button>
+        </Button>
       </div>
       <div
         ref={containerRef}
@@ -166,10 +172,15 @@ export function GraphListView({
         aria-activedescendant={ordered.length > 0 ? rowID(active) : undefined}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-y-auto px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         {ordered.length === 0 ? (
-          <div className="px-2 py-6 text-center text-[12px] text-muted-foreground">这个快照里还没有可列出的节点。</div>
+          <EmptyState
+            compact
+            className="py-10"
+            title="这个快照里还没有可列出的节点。"
+            description="图里出现意图或事实后，会在这里按与画布键盘导航相同的顺序列出。"
+          />
         ) : (
           ordered.map((node, index) => {
             const isActive = index === active
@@ -187,23 +198,30 @@ export function GraphListView({
                   onSelect(node.id)
                 }}
                 onMouseEnter={() => setActive(index)}
-                className={`flex cursor-pointer items-baseline gap-2 rounded px-2 py-1 text-[12px] [contain-intrinsic-size:1.75rem] [content-visibility:auto] ${
+                className={`flex h-9 cursor-pointer items-center gap-2 rounded-md px-2.5 text-[12px] transition-colors [contain-intrinsic-size:2.25rem] [content-visibility:auto] ${
                   isSelected
-                    ? 'bg-primary/15 text-foreground'
+                    ? 'bg-primary/[0.09] text-ink shadow-[inset_2px_0_0_var(--primary)]'
                     : isActive
-                      ? 'bg-muted/60 text-foreground'
-                      : 'text-muted-foreground hover:bg-muted/40'
+                      ? 'bg-surface-2 text-ink'
+                      : 'text-ink-2 hover:bg-surface-2/70 hover:text-ink'
                 }`}
               >
-                <span className="w-[104px] shrink-0 font-mono text-[10.5px] text-muted-foreground">{typeText(node)}</span>
+                <span className="w-[112px] shrink-0 truncate font-mono text-[11px] text-ink-3">
+                  {typeText(node)}
+                </span>
                 <span className="min-w-0 flex-1 truncate">
                   {node.label || '（无标题）'}
                   {isMatch && (
-                    <span className="ml-1 rounded bg-info/15 px-1 text-[9px] text-info">命中</span>
+                    <span className="ml-1.5 rounded bg-info/12 px-1.5 py-0.5 text-[11px] text-info">命中</span>
                   )}
                 </span>
-                <span className="w-[72px] shrink-0 text-right text-[10.5px] text-muted-foreground">{stateText(node)}</span>
-                <span className="w-[132px] shrink-0 truncate font-mono text-[10px] opacity-60" title={node.id}>
+                <span className="w-[76px] shrink-0 truncate text-right text-[11px] text-ink-3">
+                  {stateText(node)}
+                </span>
+                <span
+                  className="hidden w-[136px] shrink-0 truncate font-mono text-[11px] text-ink-3/80 sm:block"
+                  title={node.id}
+                >
                   {node.id}
                 </span>
               </div>

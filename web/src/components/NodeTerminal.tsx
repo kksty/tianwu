@@ -29,12 +29,22 @@ export function NodeTerminal({
   useEffect(() => {
     if (!node || !host) return
     setHint('连接中…')
+    // The PTY is a dark console inside a themeable shell: read the live CSS
+    // variables so the terminal canvas, the pane frame and the rest of the
+    // console never disagree (dark palette: background #0a0c10, ink #e7eaf0).
+    const root = typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
+    const token = (name: string, fallback: string) => root?.getPropertyValue(name).trim() || fallback
     const term = new XTerm({
       convertEol: true,
       cursorBlink: true,
       fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-      theme: { background: '#0a0a0c', foreground: '#d4d4d8', cursor: '#d4d4d8' },
+      theme: {
+        background: token('--background', '#0a0c10'),
+        foreground: token('--foreground', '#e7eaf0'),
+        cursor: token('--ink-1', '#e7eaf0'),
+        selectionBackground: 'rgba(242,85,77,0.30)',
+      },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -104,18 +114,18 @@ export function NodeTerminal({
   }, [node, host, mode])
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-[#0a0a0c]">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-        <span className="font-mono text-[12px] text-foreground">{node}</span>
-        <span className="text-[11px] text-muted-foreground">{mode === 'repl' ? 'aiscan REPL' : '节点 shell'}</span>
-        {hint && <span className="tw-break text-[11px] text-muted-foreground">· {hint}</span>}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-hairline bg-background">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-hairline bg-surface-1 px-4">
+        <span className="truncate font-mono text-[12px] text-ink">{node}</span>
+        <span className="text-[11px] text-ink-3">{mode === 'repl' ? 'aiscan REPL' : '节点 shell'}</span>
+        {hint && <span className="tw-break truncate text-[11px] text-ink-3">· {hint}</span>}
         {onClose && (
-          <Button size="icon-xs" variant="ghost" className="ml-auto" onClick={onClose} title="关闭终端">
-            <X className="h-3.5 w-3.5" />
+          <Button size="icon-sm" variant="ghost" className="ml-auto shrink-0" onClick={onClose} title="关闭终端" aria-label="关闭终端">
+            <X className="h-4 w-4" />
           </Button>
         )}
       </div>
-      <div ref={setHost} className="min-h-0 flex-1 p-1" />
+      <div ref={setHost} className="min-h-0 flex-1 p-1.5" />
     </div>
   )
 }

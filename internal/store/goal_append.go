@@ -34,7 +34,7 @@ func (s *Store) AddGoalIdempotent(g model.Goal) (model.Goal, bool, error) {
 			if cur.IdempotencyKey != g.IdempotencyKey {
 				continue
 			}
-			if cur.Statement != g.Statement || cur.QuantifiedTarget != g.QuantifiedTarget {
+			if cur.Statement != g.Statement || cur.Start != g.Start || cur.QuantifiedTarget != g.QuantifiedTarget {
 				return model.Goal{}, false, fmt.Errorf("%w：%s", ErrGoalIdempotencyConflict, g.IdempotencyKey)
 			}
 			return markGoalReceipt(detachGoal(cur), s.db.Facts), false, nil

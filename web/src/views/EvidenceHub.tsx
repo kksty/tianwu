@@ -22,9 +22,9 @@ export function EvidenceHub({
   onTab: (t: EvidenceTab) => void
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <TabBar tabs={EVIDENCE_TABS} tab={tab} onTab={onTab} ariaLabel="证据" />
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {tab === 'evidence' ? <EvidenceView /> : tab === 'traffic' ? <Traffic /> : <Assets />}
       </div>
     </div>

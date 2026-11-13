@@ -229,6 +229,7 @@ func graphNode(id string, node any, budget int, projected bool) (any, NodeDetail
 		d.Query = "/api/goals"
 		v.From = nil
 		v.Statement = clip(v.Statement, 240)
+		v.Start = clip(v.Start, 240)
 		v.QuantifiedTarget = clip(v.QuantifiedTarget, 240)
 		v.Note = clip(v.Note, 240)
 		d.Omitted = append(d.Omitted, "from", "full_text")

@@ -7,6 +7,11 @@ import {
   Chip,
   EmptyState,
   Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   SkeletonList,
   useConfirm,
 } from '@cyber/ui'
@@ -31,6 +36,8 @@ const STATUS: Record<
 
 const STATUS_ORDER: PlaybookStatus[] = ['confirmed', 'candidate', 'retired']
 
+type SortMode = 'updated' | 'title'
+
 function statusMeta(status: string) {
   return STATUS[status] ?? { label: status || '未知', variant: 'muted' as const, hint: '' }
 }
@@ -51,6 +58,7 @@ export function Playbooks() {
   const query = useDebounced(q, 150)
   const [status, setStatus] = useState<PlaybookStatus | 'all'>('all')
   const [tag, setTag] = useState<string | null>(null)
+  const [sort, setSort] = useState<SortMode>('updated')
   const [selected, setSelected] = useState<string | null>(null)
   const [copied, setCopied] = useState('')
   const [busy, setBusy] = useState('')
@@ -88,9 +96,27 @@ export function Playbooks() {
     return [...out.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
   }, [entries])
 
-  const filtered = entries
+  const filtered = useMemo(() => {
+    const rows = [...entries]
+    // The API orders confirmed knowledge first, then most recently updated
+    // (internal/retrieval/playbooks.go). The default client sort must keep that
+    // confirmed-first guarantee: a freshly touched candidate must not outrank
+    // confirmed knowledge, and pagination has to stay a stable continuation of
+    // the server order (id breaks ties).
+    const confirmed = (p: Playbook) => (p.status === 'confirmed' ? 0 : 1)
+    if (sort === 'title') rows.sort((a, b) => a.title.localeCompare(b.title, 'zh'))
+    else {
+      rows.sort((a, b) =>
+        confirmed(a) - confirmed(b)
+        || (b.updated_at > a.updated_at ? 1 : b.updated_at < a.updated_at ? -1 : 0)
+        || a.id.localeCompare(b.id))
+    }
+    return rows
+  }, [entries, sort])
 
   const current = filtered.find((p) => p.id === selected) ?? filtered[0]
+  const hasFilter = Boolean(query || tag || status !== 'all')
+  const firstLoad = list.loading && entries.length === 0
 
   async function more() {
     if (!nextCursor || busy || list.loading || list.refreshing) return
@@ -184,141 +210,206 @@ export function Playbooks() {
     <Page
       title="战场知识"
       subtitle={`${archived ? '归档' : '当前'}知识 · 已载 ${entries.length}/${list.data?.total ?? 0} 条 · 已确认 ${counts.confirmed ?? 0} · 候选 ${counts.candidate ?? 0}`}
-      actions={
-        <div className="flex flex-wrap gap-2">
-          <Button size="xs" variant="outline" onClick={() => setArchived(v => !v)}>{archived ? '查看当前' : '查看归档'}</Button>
-          <Button size="xs" variant="outline" onClick={() => void more()} disabled={!nextCursor || !!busy || list.loading || list.refreshing}>加载更多</Button>
-          <Button size="xs" variant="outline" onClick={list.reload} disabled={list.loading || list.refreshing}>
-            <RefreshCw className={list.loading || list.refreshing ? 'h-3 w-3 animate-spin' : 'h-3 w-3'} />
-            刷新
-          </Button>
-        </div>
-      }
       scroll={false}
     >
       <div className="flex h-full min-h-0 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-        <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-border md:h-auto md:min-h-0 md:w-[380px] md:border-b-0 md:border-r">
-          <div className="shrink-0 space-y-2 border-b border-border p-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <aside className="flex h-[min(42vh,22rem)] min-h-[280px] w-full shrink-0 flex-col border-b border-hairline md:h-auto md:min-h-0 md:w-[360px] md:border-b-0 md:border-r">
+          {/* One toolbar: search + facet toggle + refresh, all h-8. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-hairline p-3">
+            <div className="relative min-w-0 flex-1 basis-[180px]">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-3" />
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="搜索名称、何时用、命令、标签"
                 className="h-8 pl-7 text-[12px]"
+                aria-label="搜索战场知识"
               />
             </div>
-            <div className="flex flex-wrap gap-1">
+            <Button
+              size="sm"
+              variant={archived ? 'secondary' : 'outline'}
+              active={archived}
+              className="h-8 shrink-0"
+              title={archived ? '回到当前知识' : '只看已归档知识'}
+              onClick={() => setArchived(v => !v)}
+            >
+              <Archive className="h-3.5 w-3.5" />
+              {archived ? '查看当前' : '查看归档'}
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="shrink-0"
+              aria-label="刷新战场知识"
+              title="刷新列表"
+              disabled={list.loading || list.refreshing}
+              onClick={list.reload}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${list.loading || list.refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-hairline px-3 py-2">
+            <Chip
+              active={status === 'all'}
+              onClick={() => setStatus('all')}
+              className="h-8 rounded-md px-2.5 text-[12px]"
+            >
+              全部
+              <span className="tw-nums font-mono opacity-60">{Object.values(counts).reduce((sum, count) => sum + count, 0)}</span>
+            </Chip>
+            {STATUS_ORDER.map((s) => (
               <Chip
-                active={status === 'all'}
-                onClick={() => setStatus('all')}
-                className="px-1.5 py-0 text-[11px]"
+                key={s}
+                active={status === s}
+                onClick={() => setStatus(status === s ? 'all' : s)}
+                className="h-8 rounded-md px-2.5 text-[12px]"
+                title={STATUS[s]?.hint}
               >
-                全部
-                <span className="font-mono opacity-60">{Object.values(counts).reduce((sum, count) => sum + count, 0)}</span>
+                {STATUS[s]?.label ?? s}
+                <span className="tw-nums font-mono opacity-60">{counts[s] ?? 0}</span>
               </Chip>
-              {STATUS_ORDER.map((s) => (
+            ))}
+            <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+              <SelectTrigger className="ml-auto h-8 w-[104px] shrink-0 border-hairline bg-transparent px-2 text-[12px] text-ink-3" aria-label="排序">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updated" className="text-[12px]">最近更新</SelectItem>
+                <SelectItem value="title" className="text-[12px]">按名称</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {tags.length > 0 && (
+            <div className="flex max-h-[84px] shrink-0 flex-wrap gap-1 overflow-y-auto border-b border-hairline px-3 py-2" title="已载入条目的标签">
+              {tags.map(([name, n]) => (
                 <Chip
-                  key={s}
-                  active={status === s}
-                  onClick={() => setStatus(status === s ? 'all' : s)}
-                  className="px-1.5 py-0 text-[11px]"
-                  title={STATUS[s]?.hint}
+                  key={name}
+                  active={tag === name}
+                  onClick={() => setTag(tag === name ? null : name)}
+                  className="h-7 rounded-md px-2 text-[11px]"
+                  title={tag === name ? `取消 ${name} 过滤` : `只看 ${name}`}
                 >
-                  {STATUS[s]?.label ?? s}
-                  <span className="font-mono opacity-60">{counts[s] ?? 0}</span>
+                  {name}
+                  <span className="tw-nums font-mono opacity-60">{n}</span>
                 </Chip>
               ))}
             </div>
-            {tags.length > 0 && (
-              <div className="flex max-h-[76px] flex-wrap gap-1 overflow-y-auto" title="已载入条目的标签">
-                {tags.map(([name, n]) => (
-                  <Chip
-                    key={name}
-                    active={tag === name}
-                    onClick={() => setTag(tag === name ? null : name)}
-                    className="px-1.5 py-0 text-[11px]"
-                    title={tag === name ? `取消 ${name} 过滤` : `只看 ${name}`}
-                  >
-                    {name}
-                    <span className="font-mono opacity-60">{n}</span>
-                  </Chip>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            {list.loading && <SkeletonList count={6} />}
-            {list.error && <Callout tone="destructive">{list.error}</Callout>}
-            {!list.loading && !list.error && entries.length === 0 && (query || tag || status !== 'all') && (
-              <div className="px-2 py-6 text-[12px] text-muted-foreground">
-                没有匹配的战场知识。换个关键词，或点掉状态 / 标签过滤。
+            {firstLoad && <SkeletonList count={6} />}
+            {list.error && (
+              <div className="p-1">
+                <Callout tone="destructive">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>读取战场知识失败：{list.error}</span>
+                    <Button size="xs" variant="outline" onClick={list.reload}>重试</Button>
+                  </div>
+                </Callout>
               </div>
             )}
-            {!list.loading && !list.error && entries.length === 0 && !query && !tag && status === 'all' && (
-              <div className="px-2 py-6 text-[12px] leading-relaxed text-muted-foreground">
-                {archived ? '没有归档的战场知识。' : '还没有战场知识。执行者可在运行后声明，指挥官也可以提名候选。'}
-              </div>
+            {!firstLoad && !list.error && entries.length === 0 && hasFilter && (
+              <EmptyState
+                compact
+                title="没有匹配的战场知识"
+                description="换个关键词，或点掉状态 / 标签过滤。"
+                action={
+                  <Button size="sm" variant="outline" onClick={() => { setQ(''); setTag(null); setStatus('all') }}>
+                    清除筛选
+                  </Button>
+                }
+              />
             )}
-            {filtered.map((p) => {
-              const st = statusMeta(p.status)
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setSelected(p.id)}
-                  className={
-                    'mb-0.5 block w-full rounded-md px-2.5 py-2 text-left transition-colors ' +
-                    (current?.id === p.id ? 'bg-primary/10' : 'hover:bg-muted/60')
-                  }
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-[13px] font-medium text-foreground">{p.title}</span>
-                    <Badge size="sm" variant={st.variant} className="ml-auto shrink-0">
-                      {st.label}
-                    </Badge>
-                  </div>
-                  <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-muted-foreground">
-                    {p.when}
-                  </div>
-                  {(p.tags ?? []).length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
+            {!firstLoad && !list.error && entries.length === 0 && !hasFilter && (
+              <EmptyState
+                compact
+                icon={BookMarked}
+                title={archived ? '没有归档的战场知识' : '还没有战场知识'}
+                description={
+                  archived
+                    ? '归档的知识会出现在这里；归档不改文本，仍可恢复。'
+                    : '执行者在跑过的那一轮里声明一条，指挥官也可以提名候选；确认后会出现在这里。'
+                }
+                action={archived ? <Button size="sm" variant="outline" onClick={() => setArchived(false)}>查看当前</Button> : undefined}
+              />
+            )}
+            <div className="divide-y divide-hairline">
+              {filtered.map((p) => {
+                const st = statusMeta(p.status)
+                const active = current?.id === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelected(p.id)}
+                    aria-pressed={active}
+                    className={`block w-full rounded-lg px-2.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                      active ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_var(--primary)]' : 'hover:bg-surface-2'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 truncate text-[13px] font-medium text-ink">{p.title}</span>
+                      <Badge size="sm" variant={st.variant} className="ml-auto shrink-0">
+                        {st.label}
+                      </Badge>
+                    </div>
+                    <div className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-ink-2">
+                      {p.when}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
                       {(p.tags ?? []).slice(0, 4).map((t) => (
                         <Badge key={t} size="sm" variant="muted">
                           {t}
                         </Badge>
                       ))}
+                      <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-3">{fmtTime(p.updated_at).slice(5)}</span>
                     </div>
-                  )}
-                </button>
-              )
-            })}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
-          <div className="shrink-0 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-            已载入 {entries.length} / {list.data?.total ?? 0} 条
-            {tag ? ` · 标签 ${tag}` : ''}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-3">
+            <span className="tw-nums font-mono">已载入 {entries.length} / {list.data?.total ?? 0} 条</span>
+            {tag ? <span className="truncate">· 标签 {tag}</span> : ''}
+            {nextCursor && (
+              <Button size="xs" variant="ghost" className="ml-auto" disabled={!!busy || list.loading} onClick={() => void more()}>
+                {busy === 'page' ? '加载中…' : '加载更多'}
+              </Button>
+            )}
           </div>
         </aside>
 
         <section className="min-h-[280px] min-w-0 flex-1 overflow-y-auto md:min-h-0">
           {!current ? (
             <div className="flex h-full items-center justify-center">
-              <EmptyState
-                icon={BookMarked}
-                title={entries.length === 0 ? '还没有战场知识' : '没有匹配项'}
-                description={
-                  entries.length === 0
-                    ? '执行者在跑过的那一轮里写一条 kind=playbook；指挥官只能提名候选。候选被执行者同名声明后升级为确认。'
-                    : '换个关键词或状态试试。'
-                }
-              />
+              {list.error && entries.length === 0 ? (
+                <EmptyState
+                  icon={BookMarked}
+                  title="战场知识读取失败"
+                  description={list.error}
+                  action={<Button size="sm" variant="outline" onClick={list.reload}>重试</Button>}
+                />
+              ) : entries.length === 0 ? (
+                /* The list column already explains the empty library; a second
+                   full empty state here would read as two errors. */
+                <span className="text-[12px] text-ink-3">选中左侧条目查看详情</span>
+              ) : (
+                <EmptyState
+                  icon={BookMarked}
+                  title="没有匹配项"
+                  description="换个关键词或状态试试。"
+                />
+              )}
             </div>
           ) : (
-            <article className="mx-auto max-w-3xl px-6 py-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-h4 font-semibold text-foreground">{current.title}</h2>
+            <article className="mx-auto max-w-3xl px-5 py-5 sm:px-6">
+              <header className="flex flex-wrap items-center gap-2">
+                <h2 className="text-h4 min-w-0 break-words font-semibold text-ink">{current.title}</h2>
                 <Badge variant={statusMeta(current.status).variant}>
                   {statusMeta(current.status).label}
                 </Badge>
@@ -327,21 +418,20 @@ export function Playbooks() {
                   const Icon = o.icon
                   return (
                     <Badge variant={o.variant} className="gap-1">
-                      <Icon className="h-3 w-3" />
+                      <Icon className="h-3.5 w-3.5" />
                       {o.label}
                     </Badge>
                   )
                 })()}
-              </div>
+                <span className="ml-auto flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
+                  <span>{originLabel(current.origin)}</span>
+                  {current.intent_id && <span className="font-mono">· {current.intent_id}</span>}
+                  <span>· 更新于 {fmtTime(current.updated_at)}</span>
+                  <span className="font-mono">· {current.id}</span>
+                </span>
+              </header>
 
-              <p className="mt-1.5 text-[13px] leading-6 text-muted-foreground">{current.when}</p>
-
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <span>{originLabel(current.origin)}</span>
-                {current.intent_id && <span className="font-mono">· {current.intent_id}</span>}
-                <span>· 更新于 {fmtTime(current.updated_at)}</span>
-                <span className="font-mono">· {current.id}</span>
-              </div>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{current.when}</p>
 
               {current.status === 'candidate' && (
                 <Callout tone="warning" className="mt-3">
@@ -357,21 +447,19 @@ export function Playbooks() {
 
               {current.doc && (
                 <div className="mt-5">
-                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    命令 / 判据 / 坑
-                  </div>
+                  <div className="tw-eyebrow mb-1.5">命令 / 判据 / 坑</div>
                   <div className="relative">
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 px-2.5 py-2 pr-16 font-mono text-[11.5px] leading-relaxed text-foreground/90">
+                    <pre className="tw-inset tw-break overflow-x-auto whitespace-pre-wrap rounded-md px-2.5 py-2 pr-20 font-mono text-[12px] leading-relaxed text-ink-2">
                       {current.doc}
                     </pre>
                     <Button
                       size="xs"
                       variant="ghost"
-                      className="absolute right-1 top-1 gap-1 text-[11px]"
+                      className="absolute right-1 top-1 h-7 gap-1 text-[11px]"
                       onClick={() => copy(current.doc ?? '', current.id)}
                       title="复制战场知识"
                     >
-                      {copied === current.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {copied === current.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                       {copied === current.id ? '已复制' : '复制'}
                     </Button>
                   </div>
@@ -385,7 +473,7 @@ export function Playbooks() {
                       key={t}
                       active={tag === t}
                       onClick={() => setTag(tag === t ? null : t)}
-                      className="px-1.5 py-0 text-[11px]"
+                      className="h-7 rounded-md px-2 text-[11px]"
                     >
                       {t}
                     </Chip>
@@ -395,12 +483,10 @@ export function Playbooks() {
 
               {(current.from_fact_ids ?? []).length > 0 && (
                 <div className="mt-4">
-                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    来源事实
-                  </div>
+                  <div className="tw-eyebrow mb-1.5">来源事实</div>
                   <div className="flex flex-wrap gap-1.5">
                     {(current.from_fact_ids ?? []).map((id) => (
-                      <Badge key={id} size="sm" variant="muted" className="font-mono">
+                      <Badge key={id} size="sm" variant="muted" className="tw-break font-mono">
                         {id}{current.from_fact_versions?.[id] ? ` · v${current.from_fact_versions[id]}` : ''}
                       </Badge>
                     ))}
@@ -409,8 +495,8 @@ export function Playbooks() {
               )}
 
               {current.source_run_id && (
-                <div className="mt-3 text-[11px] text-muted-foreground">
-                  最近声明运行：<a className="font-mono underline" href={`?view=runs&run=${encodeURIComponent(current.source_run_id)}`}>{current.source_run_id}</a>
+                <div className="mt-3 text-[11px] text-ink-3">
+                  最近声明运行：<a className="font-mono underline decoration-hairline underline-offset-2 hover:text-ink" href={`?view=runs&run=${encodeURIComponent(current.source_run_id)}`}>{current.source_run_id}</a>
                 </div>
               )}
 
@@ -420,33 +506,47 @@ export function Playbooks() {
                 </Callout>
               )}
 
-              <footer className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-3 text-[11px] text-muted-foreground">
+              <footer className="mt-6 flex flex-wrap items-center gap-2 border-t border-hairline pt-3 text-[11px] text-ink-3">
                 <span>项目私有知识：不是事实、不进报告、不算覆盖。</span>
                 <span className="ml-auto flex items-center gap-1.5">
-                  {current.status === 'confirmed' && <Sparkles className="h-3 w-3" />}
-                  {current.status === 'retired' && <Archive className="h-3 w-3" />}
+                  {current.status === 'confirmed' && <Sparkles className="h-3.5 w-3.5" />}
+                  {current.status === 'retired' && <Archive className="h-3.5 w-3.5" />}
                 </span>
-                <Button size="xs" variant="outline" disabled={!!busy} onClick={() => window.location.assign(`/g/?view=kb&source_project=${encodeURIComponent(projectID())}&source_playbook=${encodeURIComponent(current.id)}`)}><Globe className="h-3 w-3" />提名世界知识</Button>
-                <Button size="xs" variant="ghost" disabled={!!busy} onClick={() => remove(current)}><Trash2 className="h-3 w-3" />删除</Button>
-                <Button size="xs" variant="outline" disabled={!!busy} onClick={() => void archive(current)}>{current.archived ? '恢复' : '归档'}</Button>
-                <Button size="xs" variant="ghost" disabled={!!busy} onClick={() => void readHistory(current)}>修订历史</Button>
+                <Button size="sm" variant="outline" disabled={!!busy} onClick={() => window.location.assign(`/g/?view=kb&source_project=${encodeURIComponent(projectID())}&source_playbook=${encodeURIComponent(current.id)}`)}>
+                  <Globe className="h-3.5 w-3.5" />提名世界知识
+                </Button>
+                <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void archive(current)}>
+                  {current.archived ? '恢复' : '归档'}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void readHistory(current)}>修订历史</Button>
                 {current.status !== 'retired' && (
                   <Button
-                    size="xs"
+                    size="sm"
                     variant="outline"
+                    className="border-destructive/35 text-destructive hover:border-destructive/50 hover:bg-destructive/10"
                     disabled={busy === current.id}
                     onClick={() => retire(current)}
                   >
                     {busy === current.id ? '退役中…' : '退役'}
                   </Button>
                 )}
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={!!busy}
+                  onClick={() => remove(current)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />删除
+                </Button>
               </footer>
               {history?.id === current.id && (
-                <div className="mt-3 space-y-2 text-[11px]">
+                <div className="mt-3 space-y-2 border-t border-hairline pt-2 text-[11px]">
                   {history.rows.map((h, i) => (
-                    <details key={`${h.version}:${i}`}>
-                      <summary>v{h.version} · {h.operation} · {fmtTime(h.at)}</summary>
-                      <pre className="whitespace-pre-wrap break-words">{JSON.stringify(h.value, null, 2)}</pre>
+                    <details key={`${h.version}:${i}`} className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-1.5">
+                      <summary className="cursor-pointer select-none text-ink-3 hover:text-ink">
+                        <span className="tw-nums font-mono">v{h.version}</span> · {h.operation} · {fmtTime(h.at)}
+                      </summary>
+                      <pre className="tw-break mt-1 whitespace-pre-wrap font-mono text-[11px] text-ink-2">{JSON.stringify(h.value, null, 2)}</pre>
                     </details>
                   ))}
                   {history.next && <Button size="xs" variant="ghost" disabled={!!busy} onClick={() => void readHistory(current, history.next)}>继续读取历史</Button>}

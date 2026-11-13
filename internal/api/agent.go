@@ -42,6 +42,40 @@ func identityOf(r *http.Request) (collab.Identity, bool) {
 	return id, ok
 }
 
+type agentSurfaceCtxKey struct{}
+
+// WithAgentSurface marks a request that authenticated with the harness session
+// credential (cmd/tw's roleAgent) instead of the operator's console token. That
+// credential has no per-run identity, so the auth gate is the only place that
+// knows the caller is a session: it stamps the request before the project mux
+// runs. Handlers must not infer the role from anything the model can send.
+func WithAgentSurface(ctx context.Context) context.Context {
+	return context.WithValue(ctx, agentSurfaceCtxKey{}, true)
+}
+
+// IsAgentSurface reports whether the auth gate marked ctx as a harness session
+// request. It is the read half of WithAgentSurface for tests and for callers
+// that need the role without a *http.Request (harnessSession adds the
+// participant identity check).
+func IsAgentSurface(ctx context.Context) bool {
+	marked, _ := ctx.Value(agentSurfaceCtxKey{}).(bool)
+	return marked
+}
+
+// harnessSession reports whether the caller is a harness session (commander or
+// executor) rather than the operator. The participant mux authenticates an
+// executor with a per-run collab identity; the commander talks to the project
+// mux with the derived agent token, which carries no identity, so the auth gate
+// marks that path instead. Report/verification ("support") runs, their output
+// and the review queue are operator-side post-processing and must stay absent
+// from either session's API view (docs/01-architecture.md §8).
+func harnessSession(r *http.Request) bool {
+	if _, ok := identityOf(r); ok {
+		return true
+	}
+	return IsAgentSurface(r.Context())
+}
+
 // identityFile is the case-relative credential a run uses to call the
 // participant API. It exists only for the lifetime of the turn (the dispatcher
 // revokes the token and removes the file when the run settles) and grants
@@ -292,6 +326,11 @@ type runTailView struct {
 // Scope: the Store is this project's ledger, so a run from another project is
 // simply not found (404). The id is one path segment (isPlainID) because it is
 // also a file name; the journal path is built from it in readRunEventTail.
+//
+// Report/verification runs are operator-side support work. A verifier run keeps
+// the reviewed fact's intent id and is listed in coverage/readiness, so a
+// session can learn its id without guessing: it must not be able to read that
+// run's events. Same 404 as a missing run, so the surface gives nothing away.
 func (s *Server) agentRunEventsTail(w http.ResponseWriter, r *http.Request) {
 	if _, ok := identityOf(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "缺少协作身份")
@@ -303,7 +342,7 @@ func (s *Server) agentRunEventsTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run, ok := s.Store.GetRun(runID)
-	if !ok {
+	if !ok || supportPurpose(run.Purpose) {
 		writeErr(w, http.StatusNotFound, "没有这个 run："+runID)
 		return
 	}
@@ -402,9 +441,17 @@ func (s *Server) participantOf(in model.Intent, run model.Run) participantView {
 // latestRuns maps intent id to its newest run. The intent only stores the
 // current run; the map is for the model/revision display when that pointer is
 // stale or empty.
+//
+// Report/verification runs are skipped: a verifier run inherits the reviewed
+// fact's intent id, and otherwise it would be reported as the direction's
+// current holder (its run id, model and profile are operator-side support
+// work). The intent's own run is the newest run that actually is the direction.
 func (s *Server) latestRuns() map[string]model.Run {
 	out := map[string]model.Run{}
 	for _, r := range s.Store.Runs() {
+		if supportPurpose(r.Purpose) {
+			continue
+		}
 		cur, ok := out[r.IntentID]
 		if !ok || r.StartedAt.After(cur.StartedAt) {
 			out[r.IntentID] = r

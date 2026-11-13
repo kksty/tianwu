@@ -129,8 +129,9 @@ func TestPolicyFlipBetweenAdmissionAndFreezeIsRecheckedAtFreeze(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 2) The operator flips to strict before the dispatch goroutine freezes.
-	if _, err := p.SetPremisePolicy(project.PremisePolicyStrict); err != nil {
+	// 2) The operator flips to verified_only before the dispatch goroutine
+	// freezes the input.
+	if _, err := p.SetPremisePolicy(project.PremisePolicyVerifiedOnly); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy()); err == nil {
