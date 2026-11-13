@@ -1,0 +1,16 @@
+{
+  "id": "kb016",
+  "title": "Web 入口 CVE 与受影响版本",
+  "description": "Log4j2、Shiro、Fastjson、WebLogic、Spring 等公开漏洞的版本区间与触发入口",
+  "detail": "Log4j2 CVE-2021-44228：log4j-core 2.0-beta9–2.14.1，被记录的字符串触发 JNDI；2.15.0 修复，CVE-2021-45046 见 2.16.0。\nShiro CVE-2016-4437：≤1.2.4 硬编码 AES 密钥（默认 kPH+bIxk5D2deZiIxcaaaA==），1.2.5 起随机；Shiro-721（CVE-2019-12422）影响 ≤1.4.1。\nFastjson：≤1.2.24 无 autoType 校验，1.2.47 缓存缺陷使其失效，1.2.68 引入 safeMode。\nWebLogic：CVE-2020-2883 为 T3/IIOP 反序列化（10.3.6/12.1.3/12.2.1）；CVE-2020-14882 使 /console 未授权，配 CVE-2020-14883 可执行。\nSpring：CVE-2022-22965 需 JDK9+ 且 war 部署在 Tomcat（5.3.0–5.3.17、5.2.0–5.2.19）；actuator 未授权可读 env、heapdump。\nStruts2：S2-045/046 为 CVE-2017-5638（Content-Type 求值 OGNL），S2-061 为 CVE-2020-17530。",
+  "commands": [
+    "curl -s http://T/actuator/env -o /dev/null -w '%{http_code}'",
+    "curl -s -D - -o /dev/null http://T/ | grep -iE 'server|x-powered-by'"
+  ],
+  "tags": [
+    "cve",
+    "web"
+  ],
+  "source": "经验/nuclei-templates",
+  "created_at": "2026-10-15T13:44:05Z"
+}

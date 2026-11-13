@@ -1,0 +1,16 @@
+{
+  "id": "kb009",
+  "title": "Spring Boot Actuator 端点与默认暴露",
+  "description": "出现 Whitelabel 错误页或 /actuator，需要核对端点与默认暴露时查这条",
+  "detail": "路径：Spring Boot 2.x 默认前缀为 /actuator，1.x 端点直接在根路径，管理上下文路径可改。默认暴露：2.x 仅 health 与 info 通过 Web 暴露；1.x 在引入 Spring Security 时管理安全默认开启，其余端点需认证，无安全组件时全开。端点：/actuator/env、/heapdump、/mappings、/beans、/configprops、/threaddump、/loggers、/jolokia、/gateway/routes；shutdown 默认禁用。env 对含 password、secret、key、token 的键脱敏为星号。heapdump 为 HPROF 二进制，常见大小为数百 MB，含明文口令与连接串。jolokia 需 jolokia-core，list 端点暴露 MBean。gateway 需 Spring Cloud Gateway，routes 支持新增路由，filters 中含 SpEL。判据：Whitelabel Error Page 或 /actuator 返回带链接的 JSON 即 Spring Boot；/actuator 404 但 /env 200 说明前缀已被修改。坑：401 通常说明已启用 Spring Security；端点被关闭时仍可看 health 的组件信息。",
+  "commands": [
+    "curl -s http://T/actuator",
+    "curl -sI http://T/actuator/env"
+  ],
+  "tags": [
+    "spring",
+    "actuator"
+  ],
+  "source": "笔记：SpringBoot",
+  "created_at": "2026-11-02T00:00:00Z"
+}

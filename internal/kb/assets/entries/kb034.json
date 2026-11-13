@@ -1,0 +1,17 @@
+{
+  "id": "kb034",
+  "title": "数据库默认配置与文件读写边界",
+  "description": "MySQL/MSSQL/PostgreSQL/Redis/MongoDB 的默认认证与文件读写前置条件",
+  "detail": "MySQL 3306：secure_file_priv 三态——NULL 禁用、空串不限目录、非空只允许该目录（Linux 包安装常见 /var/lib/mysql-files/）；LOAD_FILE 与 INTO OUTFILE 还需 FILE 权限，以 mysqld 身份读写；向 plugin_dir 写 UDF 需高权限且目录可写；8.0 起默认认证插件为 caching_sha2_password。\nMSSQL 1433：xp_cmdshell 自 2005 默认禁用，启用需 sysadmin 先开 show advanced options 再改 sp_configure；命令以服务账户身份执行（默认实例常为 NT Service\\\\MSSQLSERVER）；xp_dirtree 与 xp_fileexist 默认 public 可执行，可向 UNC 发起 SMB 认证但需 445 出站；OPENROWSET(BULK) 需 sysadmin 或 ADMINISTER BULK OPERATIONS；命名实例用动态端口并依赖 UDP 1434。\nPostgreSQL 11+：COPY FROM PROGRAM 与 lo_import 需 pg_execute_server_program 或 pg_read_server_files，之前仅超级用户。\nRedis 6379：默认无 requirepass，3.2 起 protected-mode 默认开启。\nMongoDB 27017、Elasticsearch 9200 默认无认证。\n判据：能读账号表不等于能执行系统命令。",
+  "commands": [
+    "SELECT @@version, @@secure_file_priv;",
+    "SELECT @@VERSION AS v, (SELECT value_in_use FROM sys.configurations WHERE name='xp_cmdshell') AS xp_cmdshell;",
+    "redis-cli -h T INFO server"
+  ],
+  "tags": [
+    "db",
+    "config"
+  ],
+  "source": "经验 + 笔记：MSSQL shell",
+  "created_at": "2026-11-02T00:00:00Z"
+}

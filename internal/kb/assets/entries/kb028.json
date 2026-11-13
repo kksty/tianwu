@@ -1,0 +1,13 @@
+{
+  "id": "kb028",
+  "title": "AD 关系数据：可采集项与高危 ACE 判据",
+  "description": "BloodHound 采集的前置条件、各类采集项的语义与五类可直接提权的 ACE",
+  "detail": "采集项语义：Group/Container 是组成员与 OU 结构，ACL 是对象 ACE，LocalAdmin/RDP/DCOM/PSRemote 是主机本地权限，Session 是采集时刻的登录会话，Trusts 是域信任，ObjectProps 是属性（含 userAccountControl、SPN）。\n前置：DNS 能解析域、主机与 DC 时钟偏差 ≤5 分钟（否则 KRB_AP_ERR_SKEW）、一个有效域账号——普通域用户即可，不需要管理员；DC 强制 LDAP 签名时要走 LDAPS（636）。\n判据：GenericAll、WriteDACL、WriteOwner、AddMember、ForceChangePassword 五类边最值得跟，Owns 等价于 WriteDACL。常查视图是最短路径到 Domain Admins、Kerberoastable 用户、拥有 DCSync 权限的主体、非约束委派主机、可写 OU。\n限制：只采 Group 会漏掉 ACE 链；Session 只反映采集时刻，采不到不代表没有路径；图中 UNKNOWN 的会话是解析失败，不影响主路径。",
+  "commands": [
+    "w32tm /stripchart /computer:DC.DOMAIN.TLD /samples:1 /dataonly",
+    "ldapsearch -x -H ldap://DC.DOMAIN.TLD -b '' -s base supportedControl"
+  ],
+  "tags": ["ad", "enum"],
+  "source": "笔记：bloodhound",
+  "created_at": "2026-11-02T00:00:00Z"
+}

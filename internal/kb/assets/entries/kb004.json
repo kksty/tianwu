@@ -1,0 +1,17 @@
+{
+  "id": "kb004",
+  "title": "Java 反序列化：魔术字节与依赖链",
+  "description": "请求里出现 Java 序列化特征，需要判断入口、可用链与 JDK 限制时查这条",
+  "detail": "魔术字节：Java 原生序列化为 AC ED 00 05，Base64 前缀 rO0AB，Content-Type 常为 application/x-java-serialized-object；Hessian 2.0 二进制以 48 02 00 开头。依赖决定链：commons-collections 3.1 可用 CC1、CC3、CC5、CC6；CVE-2015-6420 在 3.2.2 修复后这些链多失效，改用 collections4 的 CC2、CC4 或 CommonsBeanutils；Spring 环境看 spring-core 版本配 Spring1、Spring2；只有 JDK 原生类时可用的链极少。JNDI 限制：RMI 远程 codebase 自 8u121 默认禁用，LDAP 与 IMS 自 8u191、11.0.1 默认禁用，之后需本地 factory 或由 LDAP 返回序列化数据触发二次反序列化。其他入口：XMLDecoder、Hessian、Fastjson autoType。坑：payload 可能被 Base64 或 gzip 包裹；WAF 拦 rO0AB 明文；classpath 缺类报 ClassNotFound，换链而不是换编码。判据：只有 DNS 回调无命令执行，多半是 gadget 类缺失、版本不匹配或远程加载被 JDK 拦截。",
+  "commands": [
+    "unzip -l app.jar | grep -E 'commons-collections|spring-core|fastjson'",
+    "java -version"
+  ],
+  "tags": [
+    "java",
+    "deser",
+    "cve"
+  ],
+  "source": "笔记：反序列化漏洞",
+  "created_at": "2026-11-02T00:00:00Z"
+}

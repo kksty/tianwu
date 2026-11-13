@@ -1,0 +1,10 @@
+# Repo-local secret scan policy for local `gitleaks` runs.
+#
+# The default ruleset is enabled; the allowlist below only covers material that
+# is deliberately fictional documentation or a local acceptance fixture.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fictional acceptance-target account: shipped as a local demo fixture, not a credential"
+paths = ['''scripts/acceptance/target\.py''']

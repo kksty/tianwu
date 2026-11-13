@@ -1,0 +1,15 @@
+{
+  "id": "kb015",
+  "title": "组件级公开漏洞版本与默认路径",
+  "description": "PHPUnit、Drupal、Jenkins、Confluence、GitLab、Spring Cloud Gateway、F5 等产品的受影响版本与入口",
+  "detail": "PHPUnit CVE-2017-9841：eval-stdin.php，<4.8.28/<5.6.3，路径 /vendor/phpunit/。\nDrupal CVE-2018-7600：≤7.57/8.3.8/8.4.5/8.5.0，入口 /user/register。\nJenkins CVE-2024-23897：CLI 任意文件读，≤2.441/LTS≤2.426.2。\nConfluence：CVE-2022-26134 OGNL、CVE-2023-22527 模板注入（8.0–8.5.3）。\nGitLab CVE-2021-22205：ExifTool 图片解析，11.9–13.10.2。\nSpring Cloud Gateway CVE-2022-22947：actuator SpEL，3.0.0–3.0.6/3.1.0。\nSolr CVE-2019-17558：velocity 模板，5.0–8.3.1。\nF5 CVE-2022-1388：iControl REST 未授权，16.1/15.1/14.1/13.1。\nExchange：ProxyLogon CVE-2021-26855、ProxyShell CVE-2021-34473。\nWebLogic CVE-2023-21839：IIOP/T3 JNDI，12.2.1.3/12.2.1.4/14.1.1。",
+  "commands": [
+    "curl -s http://T/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php -o /dev/null -w '%{http_code}'"
+  ],
+  "tags": [
+    "cve",
+    "web"
+  ],
+  "source": "经验/nuclei-templates",
+  "created_at": "2026-10-15T14:14:38Z"
+}

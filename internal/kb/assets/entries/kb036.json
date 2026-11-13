@@ -1,0 +1,16 @@
+{
+  "id": "kb036",
+  "title": "常见服务端口与默认配置判据",
+  "description": "FTP/SSH/SMB/LDAP/Redis/SMTP/RDP 的默认端口、匿名面与签名默认值",
+  "detail": "FTP 21：明文传输，anonymous 是否可用看配置；vsftpd 2.3.4 源码被植入后门（CVE-2011-2523）。\nSSH 22：OpenSSH 7.7 之前可枚举用户名（CVE-2018-15473）；diffie-hellman-group1-sha1 等老算法在新客户端默认关闭。\nSMB 445：139 不通属正常（SMB over TCP）；域控默认要求签名，成员服务器历史默认不要求，Win11 24H2 与 Server 2025 起客户端默认要求；匿名可列共享即 null session 未禁用；MS17-010 仅影响启用 SMBv1 且未打补丁的主机。\nLDAP 389/636/3268：3268 为全局编录，跨域查用户更快；匿名 base 查询返回 namingContexts 说明允许匿名；636 只收 LDAPS 时明文 389 会被拒；口令常明文落在 description 与 info 属性。\nRedis 6379：默认无 requirepass，3.2 起 protected-mode 默认开启（仅本机或带密码）；INFO 给版本，CONFIG GET dir 给落盘目录。\nMemcached 11211、MongoDB 27017、Elasticsearch 9200、ZooKeeper 2181 默认无认证。\nSMTP 25：VRFY/EXPN 可确认账号；开放中继即接受非本域收件人转发。\nRDP 3389：BlueKeep（CVE-2019-0708）影响 Win7/2008/2008R2。\n判据：端口开放只说明服务在监听，版本与认证配置才决定可利用面。",
+  "commands": [
+    "redis-cli -h T INFO server",
+    "ldapsearch -H ldap://T -x -s base namingContexts -b ''"
+  ],
+  "tags": [
+    "network",
+    "service"
+  ],
+  "source": "经验/hacktricks + 笔记：常见协议与命令",
+  "created_at": "2026-11-02T00:00:00Z"
+}

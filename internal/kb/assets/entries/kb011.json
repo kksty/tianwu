@@ -1,0 +1,15 @@
+{
+  "id": "kb011",
+  "title": "JWT 校验缺陷类型与判据",
+  "description": "JWT 常见校验缺失、弱密钥事实与声明篡改的生效前提",
+  "detail": "结构：header.payload.signature 三段 base64url，header 里的 alg 与 claims 可解出，用于判断信任来源。\n缺陷类型：alg=none 被接受（自实现与旧库，现多数库拒绝）；HS256 弱密钥可离线字典比对；kid 被拼进文件路径或 SQL 查询；RS256 降级为 HS256（拿公钥当 HMAC 密钥，库未固定算法时成立）；jku、x5u 指向外部 JWKS。\n限制：爆破成本随密钥熵变化，非对称私钥不可爆破；服务端若固定算法并校验 iss、aud、exp，且角色取自数据库，改 payload 不生效。\n坑：base64url 去掉 padding，改动后须重算签名；签名算法以 header 为准还是由服务端固定，决定能否降级；kid 注入要求服务端真把它拼进路径或查询。",
+  "commands": [
+    "curl -s http://T/api/me -o /dev/null -w '%{http_code}'"
+  ],
+  "tags": [
+    "jwt",
+    "auth"
+  ],
+  "source": "经验",
+  "created_at": "2026-10-15T13:44:05Z"
+}

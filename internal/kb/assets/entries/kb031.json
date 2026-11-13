@@ -1,0 +1,13 @@
+{
+  "id": "kb031",
+  "title": "AD 对象 ACE 语义与权限回滚约束",
+  "description": "GenericAll/WriteDACL/WriteOwner 等 ACE 的实际权限、LAPS 属性与 AdminSDHolder 的重置行为",
+  "detail": "ACE 语义：GenericAll 是对象全权；WriteDACL 可改 DACL，等于可自授任意权限；WriteOwner 改所有者，而所有者隐含 WRITE_DAC；GenericWrite 可写非受保护属性。ForceChangePassword 是扩展权限 User-Force-Change-Password，AddMember 是写组成员属性。\n按对象类型：用户上 GenericAll 可改密、写 SPN、写影子凭据；组上加成员，改完旧 TGT 的 PAC 不含新组；计算机上等价于可写 msDS-AllowedToActOnBehalfOfOtherIdentity，即 RBCD。\nDCSync 需要 DS-Replication-Get-Changes 与 DS-Replication-Get-Changes-All 两个扩展权限。\nLAPS：旧版口令在 ms-Mcs-AdmPwd、过期时间在 ms-Mcs-AdmPwdExpirationTime；Windows LAPS 用 msLAPS-Password 或受 DPAPI-NG 保护的 msLAPS-EncryptedPassword，读权限由 ACL 单独授予。\n限制：adminCount=1 的对象由 AdminSDHolder 每 60 分钟重套 ACL，手工 ACE 会被覆盖；改高权组或口令前须先记录原值。",
+  "commands": [
+    "(Get-Acl 'AD:CN=T,CN=Users,DC=DOMAIN,DC=TLD').Access | Select-Object IdentityReference,ActiveDirectoryRights,ObjectType",
+    "Get-ADUser T -Properties adminCount,servicePrincipalName"
+  ],
+  "tags": ["ad", "acl"],
+  "source": "笔记：AD 权限利用",
+  "created_at": "2026-11-02T00:00:00Z"
+}

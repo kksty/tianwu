@@ -1,0 +1,13 @@
+packages:
+  - 'web'
+  # cyber-ui is a git submodule consumed as source (see web/vite.config.ts).
+  # Only the two packages the console uses are part of this workspace, so the
+  # other apps inside cyber-ui (viewer, ioa, …) never install their deps.
+  - 'cyber-ui/packages/ui'
+  - 'cyber-ui/packages/theme'
+
+# pnpm 11: the build-script allowlist lives here (the package.json "pnpm" field
+# is no longer read). @swc/core fetches its native binary on install.
+allowBuilds:
+  esbuild: true
+  '@swc/core': true

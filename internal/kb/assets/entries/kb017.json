@@ -1,0 +1,16 @@
+{
+  "id": "kb017",
+  "title": "近年公开漏洞与国产面板默认口令",
+  "description": "GitLab、Confluence、OFBiz、JumpServer 的受影响版本与国产套件入口特征",
+  "detail": "GitLab CVE-2023-7028：密码重置邮件发往未验证地址，可接管账号，影响 16.1–16.7.1 及 16.0.9、15.11.13 等分支。\nConfluence CVE-2023-22527：模板注入，8.0.x–8.5.3，8.5.4 修复。\nOFBiz：CVE-2023-49070 为 XML-RPC 反序列化，CVE-2023-51467 为认证缺陷，影响 18.12.09 及更早。\nJumpServer：CVE-2023-42442 未授权读取会话录像与资产信息。\n国产面板：RuoYi 默认 admin/admin123（亦见 ruoyi123），/prod-api 是前端代理前缀，定时任务可执行脚本；JeecgBoot 默认 admin/123456，/jeecg-boot 为接口前缀，Freemarker 模板可注入；XXL-Job 默认 admin/123456，executor accessToken 默认 default_token，后台在 /xxl-job-admin。\n判据：404 页与静态资源路径可识别产品；登录接口返回 token 字段说明认证层在前端。",
+  "commands": [
+    "curl -s -o /dev/null -w '%{http_code}' http://T/xxl-job-admin/",
+    "curl -s -o /dev/null -w '%{http_code}' http://T/jeecg-boot/"
+  ],
+  "tags": [
+    "cve",
+    "panel"
+  ],
+  "source": "实战沉淀",
+  "created_at": "2026-10-16T23:58:00Z"
+}

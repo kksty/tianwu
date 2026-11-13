@@ -1,0 +1,13 @@
+{
+  "id": "kb029",
+  "title": "Kerberos 离线破解：etype 与预认证条件",
+  "description": "Kerberoast 与 AS-REP Roast 的加密类型、模式号、前置条件与票据传递边界",
+  "detail": "Kerberoast：任何有效域用户都能为带 SPN 的账户请求服务票据，票据用该服务账户的密钥加密。RC4（etype 23）时密钥即账户 NT 哈希，对应模式 13100；AES（etype 17/18）对应 19600/19700，成本高得多。服务账户口令多为弱口令且极少轮换，这是它成立的原因。\nAS-REP Roast：账户 userAccountControl 含 DONT_REQ_PREAUTH（0x400000）时，KDC 在未认证阶段就返回用账户密钥加密的 AS-REP，etype 23 对应模式 18200；只需用户名，不需要任何凭据。\n判据：返回串以 $krb5tgs$23 或 $krb5asrep$23 开头即 etype 23；若所有账户都要求预认证，则没有 AS-REP 面。\n票据传递：NT 哈希换 TGT 得到 ccache，之后用 KRB5CCNAME 指向它；Kerberos 认证必须用主机名或 FQDN，写 IP 会因 SPN 不匹配失败。KDC_ERR_PREAUTH_FAILED 说明该哈希不适用于此账户。\n限制：AES-only 域禁用 RC4，13100 拿不到可破的票据；Protected Users 组成员不能委派。",
+  "commands": [
+    "klist -e",
+    "Get-ADUser -LDAPFilter '(&(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))' -Properties servicePrincipalName"
+  ],
+  "tags": ["kerberos", "ad"],
+  "source": "笔记：Kerberos 离线攻击技术、Kerberos认证与OTH",
+  "created_at": "2026-11-02T00:00:00Z"
+}

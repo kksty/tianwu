@@ -1,0 +1,3 @@
+[submodule "cyber-ui"]
+	path = cyber-ui
+	url = https://github.com/chainreactors/cyber-ui.git

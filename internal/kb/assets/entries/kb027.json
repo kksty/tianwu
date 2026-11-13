@@ -1,0 +1,13 @@
+{
+  "id": "kb027",
+  "title": "AD 域环境默认端口与关键路径",
+  "description": "域控常开端口、Kerberos 时钟与票据默认值、AD 数据库与共享目录位置",
+  "detail": "域控常开：DNS 53、Kerberos 88（TCP/UDP）、LDAP 389、LDAPS 636、全局编录 3268/3269、SMB 445、RPC 135、WinRM 5985/5986。\nKerberos 默认允许客户端与 KDC 时钟偏差 5 分钟（MaxClockSkew，HKLM\\SYSTEM\\CurrentControlSet\\Services\\Kerberos\\Parameters），超出报 KRB_AP_ERR_SKEW；TGT 默认寿命 10 小时、可续订 7 天；组策略默认每 90 分钟刷新一次。\nAD 数据库在 %SystemRoot%\\NTDS\\ntds.dit，运行时被占用，需卷影或离线复制；SYSVOL 共享为 %SystemRoot%\\SYSVOL\\sysvol，NETLOGON 是其中 <域>\\scripts。\n组位置：Domain Admins 在 CN=Users，Enterprise Admins 只存在于林根域，域控对象放在 Domain Controllers 这个 OU 下。\n判据：SMB 签名在成员服务器上历史默认不强制，域控默认要求；Windows 11 24H2 与 Server 2025 起客户端也默认要求。\n限制：普通域用户默认可读 AD 大量属性，敏感属性由 ACL 单独收紧。",
+  "commands": [
+    "nltest /dsgetdc:DOMAIN.TLD /force",
+    "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Kerberos\\Parameters\" /v MaxClockSkew"
+  ],
+  "tags": ["ad", "windows"],
+  "source": "经验/impacket",
+  "created_at": "2026-10-15T14:14:38Z"
+}

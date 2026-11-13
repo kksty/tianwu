@@ -1,0 +1,16 @@
+{
+  "id": "kb001",
+  "title": "SQL 注入判据与数据库方言差异",
+  "description": "关系型数据库注入点的确认判据、方言特征与读写前置条件",
+  "detail": "判据：单引号使响应报错或长度、状态码变化；1=1 与 1=2 返回行数不同；时间盲用 sleep(3)、pg_sleep(3)、WAITFOR DELAY '0:0:3'。\n方言特征：MySQL 报错含 Duplicate entry，updatexml/extractvalue 回显在报错里；MSSQL 报错带 SQL Server 版本行；PgSQL 报错 ERROR: syntax error at or near；SQLite 无 information_schema，表名在 sqlite_master。\n限制：MySQL 读文件需 FILE 权限且 secure_file_priv 非 NULL，load_file 与 into outfile 都只能落在该目录；MSSQL xp_cmdshell 默认关闭且需 sysadmin；PgSQL 的 copy、大对象需超级用户。\n坑：注释符方言不同（#、--、/**/）；union 需列数与类型对齐；参数化查询不产生注入；时间盲延迟在连接池复用下被放大，扫描器（sqlmap）的布尔判定也受此影响。",
+  "commands": [
+    "curl -s 'http://T/item?id=1%27' -o /dev/null -w '%{http_code} %{size_download}'",
+    "mysql -h T -u u -p -e 'select @@version, @@secure_file_priv'"
+  ],
+  "tags": [
+    "sqli",
+    "web"
+  ],
+  "source": "经验/sqlmap",
+  "created_at": "2026-10-15T13:44:05Z"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "kb007",
+  "title": "ESI/SSI 解析条件与边缘缓存头",
+  "description": "回显点在 CDN 或反向代理之后，需要判断边缘层是否解析 ESI/SSI 时查这条",
+  "detail": "解析主体：ESI 只由 CDN 或反向代理解析（Akamai、Fastly、Varnish、Squid、启用 ESI 模块的 Nginx），浏览器与未装模块的源站把它当未知标签原样输出。语法：<esi:include src=\"...\"/>、<esi:vars>、<esi:remove>、<esi:comment>；变量 $(HTTP_COOKIE{name}) 取 Cookie，HttpOnly 不阻止边缘层读取。部分边缘实现允许 esi:include 带 XSLT stylesheet，由边缘节点的 Xalan 处理。SSI：<!--#exec cmd=\"id\"--> 需服务端开启 Includes 且扩展名映射到 .shtml，Apache mod_include 支持 exec，Nginx SSI 模块只支持 include 不含 exec。判据：响应中原样出现 <esi: 说明未被解析。缓存：命中看 Age、X-Cache、CF-Cache-Status、X-Served-By、Via；缓存键通常为 URL 加 Vary，X-Forwarded-Host、X-Original-URL 影响回源主机与路径。坑：直连源站不触发 ESI，必须走边缘域名；缓存投毒要求响应被按 URL 缓存且攻击者能控制其中字段。",
+  "commands": [
+    "curl -sI https://T/ | grep -iE '^(age|x-cache|via|cf-cache-status)'",
+    "curl -s https://T/ -D - -o /dev/null"
+  ],
+  "tags": [
+    "esi",
+    "cache"
+  ],
+  "source": "笔记：ESI注入",
+  "created_at": "2026-11-02T00:00:00Z"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "kb032",
+  "title": "Linux 提权：sudo、SUID 与内核 CVE 区间",
+  "description": "低权 shell 在手，需要核对 sudo/SUID/内核漏洞的影响版本时查这条",
+  "detail": "影响版本：sudo 1.8.2 至 1.8.31p2 与 1.9.0 至 1.9.5p1 受 CVE-2021-3156 影响，1.9.5p2 已修复；polkit 组件 pkexec 0.105 至 0.120 受 CVE-2021-4034 影响，0.121 已修复。内核方面：CVE-2016-5195 影响 2.6.22 至 4.8.2，4.8.3、4.4.26 修复；CVE-2022-0847 影响 5.8 至 5.16.10、5.15.24、5.10.101，修复版本 5.16.11、5.15.25、5.10.102。默认位置：带 SUID 位的系统二进制包括 passwd、sudo、su、mount、umount、pkexec；sudo 规则在 /etc/sudoers 与 /etc/sudoers.d/ 目录；环境保留项含 LD_PRELOAD 时预加载库对 sudo 生效；定时任务分布在 /etc/crontab、/etc/cron.d/ 与 /var/spool/cron 目录。能力位：CAP_SETUID 与 CAP_SETGID 直接切换身份，CAP_DAC_READ_SEARCH 绕过读权限，CAP_SYS_ADMIN 允许挂载。坑：普通用户递归扫描会漏项；SUID 位本身不等于漏洞，要看宿主是否保留危险参数；内核 CVE 要按实际版本核对，对照发行版补丁。",
+  "commands": [
+    "sudo -l",
+    "find / -perm -4000 -type f 2>/dev/null",
+    "uname -r"
+  ],
+  "tags": [
+    "linux",
+    "privesc",
+    "cve"
+  ],
+  "source": "GTFOBins/linpeas",
+  "created_at": "2026-10-15T13:44:05Z"
+}

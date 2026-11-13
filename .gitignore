@@ -1,0 +1,37 @@
+# runtime data
+.cyber/
+/data/
+/cases/
+/logs/
+*.db
+*.db-shm
+*.db-wal
+/.sock.lock
+# Legacy test fixture output; tests now persist manifests in their TempDir.
+/internal/api/project.json
+
+# build output (not used in v0: run from source)
+/bin/
+# 本仓库不内置 harness 源码；单独 checkout 请放 .build/ 或仓库外，这里只作防误提交
+/harness/
+/.build/
+*.exe
+
+# 前端依赖（构建产物 internal/web/static 要入库：go:embed 读它）
+node_modules/
+.pnpm-store/
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# 本地运行备份 / operator 的 harness 配置（可能含凭据），不入库
+/data.bak*/
+/platform.yaml
+
+# 运行数据快照（含令牌/证据/客户数据，绝不入库）
+/data.zip
+/data*.zip

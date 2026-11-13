@@ -1,0 +1,13 @@
+{
+  "id": "kb025",
+  "title": "Jenkins/GitLab 凭据存储与加密层级",
+  "description": "CI 与配置文件中凭据的落盘位置、加密方式以及解密所需的文件",
+  "detail": "Jenkins：默认端口 8080，包安装的 JENKINS_HOME 为 /var/lib/jenkins。凭据密文在 credentials.xml 与 jobs/*/config.xml；解密材料是 secrets/master.key 与 secrets/hudson.util.Secret——master.key 以 AES-128-ECB 解出 Secret，后者作为 AES-128-CBC 密钥解各条密文。三份文件缺一份都解不开；能读这两个文件通常说明身份是 Jenkins 进程账户或 root 权限。\nGitLab：外部服务口令在 /etc/gitlab/gitlab.rb，密钥在 /etc/gitlab/gitlab-secrets.json，数据库连接在 /var/opt/gitlab/gitlab-rails/etc/database.yml。\nCI 面：.gitlab-ci.yml 变量、Jenkinsfile、~/.docker/config.json 的 auth、~/.npmrc 的 _auth 与 _authToken、kubeconfig。\n判据：凭据分三层——base64 编码、Secret 加密、外部密钥库管理，层级判错就白费工夫了，按文件名过滤比逐个翻更快。坑：Jenkins 升级会更换 Secret 的封装，密钥与版本不匹配时解不开。",
+  "commands": [
+    "curl -sI http://T:8080/login | grep -i '^X-Jenkins'",
+    "ls -l /var/lib/jenkins/secrets/ /etc/gitlab/gitlab-secrets.json"
+  ],
+  "tags": ["cred", "ci"],
+  "source": "笔记：Jenkines 密码破解",
+  "created_at": "2026-11-02T00:00:00Z"
+}

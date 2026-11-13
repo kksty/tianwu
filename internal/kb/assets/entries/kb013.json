@@ -1,0 +1,17 @@
+{
+  "id": "kb013",
+  "title": "vm2 受影响版本与逃逸条件",
+  "description": "Node 应用里出现 vm2 或可疑 JS 沙箱，需要核对版本与逃逸面时查这条",
+  "detail": "受影响：vm2 <3.9.19 存在 CVE-2023-37466（Promise 回调逃逸，3.9.19 修复）；更早的 CVE-2023-30547（异常处理逃逸，3.9.17 修复）、CVE-2023-32314（3.9.16 修复）、CVE-2023-29017（3.9.15 修复）。vm2 已于 2023 年停止维护，官方声明它不再是安全边界。判据：package.json 或 node_modules/vm2/package.json 的 version 字段；报错堆栈出现 vm2/lib/ 路径；宿主把对象、函数或 Proxy 传入沙箱上下文即存在逃逸面。同类实现：isolated-vm 基于独立 V8 isolate，逃逸面与 vm2 不同；quickjs 系（quickjs-emscripten）依赖宿主桥接，桥接函数暴露即风险。限制：仅版本号不足以定性，需确认沙箱是否把宿主对象泄漏进上下文；上下文里没有 require 仍可能经 constructor 链触达宿主。坑：镜像内常有多份 vm2，按 lockfile 解析实际加载的那份。",
+  "commands": [
+    "node -p \"require('vm2/package.json').version\"",
+    "grep -n '\"vm2\"' package-lock.json"
+  ],
+  "tags": [
+    "vm2",
+    "sandbox",
+    "cve"
+  ],
+  "source": "实战沉淀",
+  "created_at": "2026-10-16T22:30:00Z"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "kb002",
+  "title": "文件上传的黑名单漏项与解析特性",
+  "description": "上传点可执行判据、各中间件扩展名解析规则与白名单限制",
+  "detail": "判据：上传返回可访问 URL 或存储路径，且该路径由 Web 服务器解析执行而非直接下载；目录可列举或路径可猜。\n黑名单常见漏项：php 侧 php3/php4/php5/phtml/phps/phar；jsp 侧 jspx/jspf；asp 侧 asa/cdx/cer；Windows 下 ::$DATA 与结尾点、空格会被规范化掉。\n解析特性：Apache 配 AddHandler mod_php 时 x.php.abc 按 PHP 解析；IIS 6 分号截断；老版本 IIS 与 nginx 存在路径信息解析问题；AllowOverride 允许时 .htaccess 可改解析规则。\n白名单限制：多数只校验扩展名与 Content-Type；%00 截断在 PHP 5.3.4 之后失效；图片马需配合文件包含或解析配置才成立。\n坑：上传目录被显式 deny 脚本执行时，上传成功也无法执行；对象存储直传只返回 CDN 域名，文件不落在本机。",
+  "commands": [
+    "curl -sI http://T/uploads/ -o /dev/null -w '%{http_code}'",
+    "curl -s http://T/phpinfo.php | grep -iE 'file_uploads|disable_functions'"
+  ],
+  "tags": [
+    "upload",
+    "web"
+  ],
+  "source": "经验",
+  "created_at": "2026-10-15T13:44:05Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "kb030",
+  "title": "AD 委派类型与证书模板前置条件",
+  "description": "非约束/约束/RBCD 三类委派的属性与前置，以及 ADCS 模板和端点的成立条件",
+  "detail": "三类委派：非约束委派看 userAccountControl 的 TRUSTED_FOR_DELEGATION；约束委派看 msDS-AllowedToDelegateTo 列表，TRUSTED_TO_AUTH_FOR_DELEGATION 表示允许协议转换（S4U2Self）；RBCD 是目标对象上的 msDS-AllowedToActOnBehalfOfOtherIdentity。\nRBCD 前置：对目标计算机对象有写权限、一个可控账户（域默认 ms-DS-MachineAccountQuota 为 10，可自建机器账户）、功能级别 2012 以上、目标委派属性为空。\n判据：S4U2Self 报 KDC_ERR_BADOPTION 说明该账户没有协议转换权限，需链式委派或 RBCD；Protected Users 组成员一律不能委派。改完组成员后旧 TGT 的 PAC 不含新组，必须重新取票。\nADCS：模板在 CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration 下。ESC1 的成立条件是模板允许「在请求中指定使用者」、含客户端身份验证 EKU、且不要求审批或签名；ESC8 需要证书服务 Web 端点（certsrv）存在且可被 NTLM 中继。",
+  "commands": [
+    "Get-ADObject -Identity \"DC=DOMAIN,DC=TLD\" -Properties ms-DS-MachineAccountQuota",
+    "Get-ADUser -Filter * -Properties userAccountControl,msDS-AllowedToDelegateTo | Where-Object msDS-AllowedToDelegateTo"
+  ],
+  "tags": ["ad", "kerberos"],
+  "source": "笔记：基于资源的约束委派 (RBCD)、Kerberos 链式委派与 RBCD 进阶攻防",
+  "created_at": "2026-11-02T00:00:00Z"
+}

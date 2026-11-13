@@ -1,0 +1,17 @@
+{
+  "id": "kb033",
+  "title": "Windows 提权：令牌特权与默认配置",
+  "description": "Windows 低权账户需要判断令牌、UAC、服务与内核漏洞的影响面时查这条",
+  "detail": "令牌：SeImpersonatePrivilege 默认授予 IIS 应用池、MSSQL 与多数服务账户。Potato 家族按版本区分：JuicyPotato 适用 Windows 7 至 10 与 Server 2008 至 2016，Server 2019 因远程调用限制失效；RoguePotato 针对 Server 2019 与 Windows 10 1809 之后；GodPotato 覆盖 Server 2012 至 2022 与 Windows 8 至 11。默认配置：未加引号的服务路径登记在注册表 ImagePath 值，路径含空格且可写即成立；AlwaysInstallElevated 要求 HKLM 与 HKCU 两处 Installer 策略值同时为 1，MSI 安装包才以系统权限安装；Winlogon 的 DefaultPassword 明文保存自动登录口令。UAC 不是安全边界：fodhelper、computerdefaults、sdclt、eventvwr 属自动提升宿主，默认 EnableLUA 为 1。内核：MS16-032 影响 Windows 7、8、10 早期与 Server 2008、2012；CVE-2021-1732 影响 Windows 10 1809 至 20H2；PrintNightmare 影响启用打印后台服务的系统。",
+  "commands": [
+    "whoami /priv",
+    "cmdkey /list",
+    "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\" /v AlwaysInstallElevated"
+  ],
+  "tags": [
+    "windows",
+    "privesc"
+  ],
+  "source": "经验/winpeas",
+  "created_at": "2026-10-15T13:44:05Z"
+}

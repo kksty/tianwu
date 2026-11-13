@@ -1,0 +1,13 @@
+{
+  "id": "kb023",
+  "title": "哈希类型与 hashcat 模式号对照",
+  "description": "常见凭据哈希对应的模式号、快慢分层与格式误判的典型坑",
+  "detail": "模式号：NTLM 1000、LM 3000、NetNTLMv1 5500、NetNTLMv2 5600、Kerberos TGS-REP etype 23 为 13100、AS-REP etype 23 为 18200、AES 的 TGS 为 19600/19700、md5crypt 500、sha512crypt 1800、bcrypt 3200、7-Zip 11600、ZipCrypto 17200/17210、PDF 10500/10600/10700、MS Office 2013 为 9600、Office 2016 工作表保护 25300。\n快慢分层：NTLM、NetNTLMv2、etype 23 的 TGS 属快模式，GPU 上可达 MH/s 以上；bcrypt、7-Zip、Office 属慢模式，只有 kH/s 甚至更低，成本因子越高越慢。\n判据：$krb5tgs$17/18 是 AES 票据，用 13100 跑不出来，要换 19600/19700；模式号选错时跑多久都不会出结果，先定类型再动手。\n格式：NetNTLMv2 带服务器挑战与时间戳，Kerberos 票据以 $krb5tgs$23 或 $krb5asrep$23 开头。\n坑：哈希复制时尾部被截断、盐丢失、混入提示文字都会报长度错误；-O 优化内核把口令长度上限压到 31 位；不同模式混在同一文件会被拒。",
+  "commands": [
+    "hashcat -I",
+    "john --list=formats"
+  ],
+  "tags": ["hash", "cred"],
+  "source": "笔记：john",
+  "created_at": "2026-11-02T00:00:00Z"
+}

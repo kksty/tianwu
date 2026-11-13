@@ -1,0 +1,17 @@
+{
+  "id": "kb003",
+  "title": "文件包含：PHP 包装器与默认落点",
+  "description": "参数形态像文件路径，需要判断包含点、包装器行为与默认落点时查这条",
+  "detail": "PHP 包装器行为：php://filter 的 base64 编码过滤器读源码而不执行；php://input、data://、http:// 用于包含时要求 allow_url_include=On，该值默认 Off，而 allow_url_fopen 默认 On；zip:// 不要求压缩包以 .zip 结尾，井号后为包内路径；phar:// 在文件存在性检查、取大小、读文件等任意文件操作时解析元数据并反序列化，不依赖 unserialize，创建 phar 需 phar.readonly=0，该值默认 On。默认落点：Debian 的 session 文件在 /var/lib/php/sessions/ 下，旧版本在 /var/lib/php5；日志在 /var/log/apache2/ 或 /var/log/httpd/ 的 access 与 error 文件、Nginx 日志目录，SSH 日志为 auth.log 或 secure；/proc/self/environ 在 CGI 与 FastCGI 下含请求头。Windows 可读 win.ini 与 boot.ini，PHP 同时接受正斜杠与反斜杠。限制：百分号零截断在 PHP 5.3.4 起失效；远程包含需 allow_url_include=On。判据：包含成功但输出源码，说明未被 PHP 解析，需换后缀或落点。",
+  "commands": [
+    "php -i | grep -E 'allow_url_(fopen|include)'",
+    "ls -l /var/lib/php/sessions/"
+  ],
+  "tags": [
+    "php",
+    "lfi",
+    "web"
+  ],
+  "source": "笔记：文件包含",
+  "created_at": "2026-11-02T00:00:00Z"
+}

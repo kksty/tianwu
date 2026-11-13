@@ -1,0 +1,14 @@
+{
+  "name": "tianwu",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "description": "天吴控制台前端（cyber-ui）。Go 侧只用构建产物，见 web/。",
+  "scripts": {
+    "dev": "pnpm --filter @tianwu/web dev",
+    "build": "pnpm --filter @tianwu/web build",
+    "typecheck": "pnpm --filter @tianwu/web typecheck",
+    "test": "pnpm --filter @tianwu/web test"
+  }
+}

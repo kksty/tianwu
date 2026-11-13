@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+/*
+ * cyber-ui is a git submodule, and Tailwind's automatic source detection does
+ * not walk into it: without these two lines the component classes it uses
+ * (`inline-flex`, `bg-primary`, …) never get generated and every control falls
+ * back to inline layout. Point the scanner at the sources explicitly.
+ */
+@source "../../cyber-ui/packages/ui/src/**/*.{ts,tsx}";
+@source "../../cyber-ui/packages/theme/src/**/*.{ts,tsx}";
+
+/* cyber-ui is built for a class-based dark mode (ThemeProvider toggles `.dark`). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Tokens. Values are complete colours (not HSL triplets) because Tailwind v4
+ * emits `var(--x)` into the utility, so the variable has to be a valid colour
+ * on its own. The palette is the console's own: near-black surfaces, one red
+ * accent for "this is an offensive action", green/amber/blue for verdicts.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: #f6f7f9;
+  --foreground: #14151a;
+  --card: #ffffff;
+  --card-foreground: #14151a;
+  --popover: #ffffff;
+  --popover-foreground: #14151a;
+  --primary: #d92d2d;
+  --primary-foreground: #ffffff;
+  --secondary: #eceef2;
+  --secondary-foreground: #14151a;
+  --muted: #eef0f4;
+  --muted-foreground: #5d626e;
+  --accent: #e9ebf0;
+  --accent-foreground: #14151a;
+  --destructive: #d92d2d;
+  --destructive-foreground: #ffffff;
+  --border: #dfe2e8;
+  --input: #d6dae1;
+  --ring: #d92d2d;
+
+  --success: #17945c;
+  --success-foreground: #ffffff;
+  --warning: #b47c06;
+  --warning-foreground: #ffffff;
+  --caution: #c2600f;
+  --caution-foreground: #ffffff;
+  --info: #2563c9;
+  --info-foreground: #ffffff;
+  --ai: #7c4dd4;
+}
+
+.dark {
+  --background: #0c0e12;
+  --foreground: #e9e9ee;
+  --card: #13161c;
+  --card-foreground: #e9e9ee;
+  --popover: #191d25;
+  --popover-foreground: #e9e9ee;
+  --primary: #f87171;
+  --primary-foreground: #170303;
+  --secondary: #1c212b;
+  --secondary-foreground: #e9e9ee;
+  --muted: #191e27;
+  --muted-foreground: #969eaf;
+  --accent: #222937;
+  --accent-foreground: #f2f2f6;
+  --destructive: #ff4d4d;
+  --destructive-foreground: #170303;
+  --border: #2a303b;
+  --input: #363f4e;
+  --ring: #f87171;
+
+  --success: #39d98a;
+  --success-foreground: #04140c;
+  --warning: #f2c94c;
+  --warning-foreground: #161100;
+  --caution: #ff9f43;
+  --caution-foreground: #180a00;
+  --info: #6aa9ff;
+  --info-foreground: #040d1a;
+  --ai: #b388ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-caution: var(--caution);
+  --color-caution-foreground: var(--caution-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-ai: var(--ai);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system,
+    sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-caption: 13px;
+  --text-caption--line-height: 18px;
+  --text-caption--letter-spacing: 0.01em;
+  --text-ui: 14px;
+  --text-ui--line-height: 20px;
+  --text-body: 15px;
+  --text-body--line-height: 24px;
+  --text-h4: 16px;
+  --text-h4--line-height: 24px;
+  --text-h3: 18px;
+  --text-h3--line-height: 28px;
+  --text-h2: 22px;
+  --text-h2--line-height: 30px;
+  --text-h1: 26px;
+  --text-h1--line-height: 34px;
+  --text-stat: 22px;
+  --text-stat--line-height: 1;
+
+  --shadow-soft: 0 1px 3px rgb(0 0 0 / 0.28), 0 1px 2px rgb(0 0 0 / 0.18);
+  --shadow-lifted: 0 4px 16px rgb(0 0 0 / 0.32), 0 1px 3px rgb(0 0 0 / 0.22);
+  --shadow-elevated: 0 12px 40px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.3);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 28%, transparent);
+  }
+
+  button {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+}
+
+@layer utilities {
+  button:not(:disabled) {
+    cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease,
+      box-shadow 120ms ease, opacity 120ms ease, scale 100ms ease-out;
+  }
+
+  button:not(:disabled):active {
+    scale: 0.97;
+  }
+
+  .tw-rail {
+    background: linear-gradient(165deg, color-mix(in oklab, var(--card) 96%, var(--primary) 4%), var(--background) 65%);
+  }
+  .tw-page-header {
+    background: linear-gradient(110deg, var(--card), color-mix(in oklab, var(--background) 90%, var(--card)));
+  }
+  .tw-panel {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+  }
+  /* The rail's faint grid: reads as graph paper under the nav, not as texture. */
+  .tw-grid {
+    background-image: linear-gradient(
+        to right,
+        color-mix(in oklab, var(--border) 45%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--border) 45%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 22px 22px;
+  }
+
+  .tw-mono {
+    font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  /*
+   * Brand lockup (Brand.tsx). Pure typographic wordmark: a warm cream→coral
+   * gradient over a 楷体/衬线 stack with a hair of engraving shadow, and a tiny
+   * vermillion seal dot. Keeping it in CSS (not baked into an image) means the
+   * treatment is identical in both shells and on the login page, and the name
+   * stays selectable/readable for assistive tech.
+   */
+  .tw-brand-cn {
+    font-family: "Kaiti SC", "STKaiti", "KaiTi", "Noto Serif SC", "Songti SC", serif;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.12em;
+    background: linear-gradient(180deg, #fff8f2 0%, #ffd2c2 55%, #ff9b84 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 1px 0 rgba(110, 8, 8, 0.5));
+  }
+
+  .tw-brand-latin {
+    font-family: var(--font-mono);
+    font-size: 7px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.36em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  }
+
+  /* The one graphic accent of the wordmark: a stamped vermillion square. */
+  .tw-brand-dot {
+    width: 5px;
+    height: 5px;
+    margin-top: 4px;
+    border-radius: 1px;
+    background: var(--primary);
+    box-shadow: 0 0 8px color-mix(in oklab, var(--primary) 70%, transparent);
+  }
+
+  /* Long evidence names and tool output must never widen the layout. */
+  .tw-break {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  @keyframes tw-rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .tw-rise {
+    animation: tw-rise 320ms ease-out both;
+  }
+
+  @keyframes tw-progress {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(400%); }
+  }
+
+  .tw-progress-indeterminate {
+    animation: tw-progress 1.4s ease-in-out infinite;
+  }
+
+  @keyframes tw-operation-enter {
+    from { opacity: 0; scale: 0.96; }
+    to { opacity: 1; scale: 1; }
+  }
+
+  .tw-operation-dialog[data-state='open'], .tw-operation-success {
+    animation: tw-operation-enter 160ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button:not(:disabled) { transition: none; }
+    button:not(:disabled):active { scale: none; }
+    .tw-rise, .tw-operation-dialog[data-state='open'], .tw-operation-success {
+      animation: none;
+    }
+    .tw-progress-indeterminate {
+      animation: none;
+      transform: translateX(100%);
+    }
+  }
+}

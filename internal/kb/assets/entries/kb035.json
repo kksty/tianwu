@@ -1,0 +1,13 @@
+{
+  "id": "kb035",
+  "title": "LDAP 端点、匿名绑定与过滤器语义",
+  "description": "389/636/3268 的用途、AD 匿名访问默认值、分页上限与 LDAP 过滤器的元字符",
+  "detail": "端口：389 为 LDAP、636 为 LDAPS、3268/3269 为全局编录（GC，读跨域对象走这里）。\n匿名面：AD 的 rootDSE 默认可匿名读取，能取到 namingContexts、supportedControl、supportedSASLMechanisms；AD 自 2003 起默认禁止匿名绑定到目录树，该行为由 dsHeuristics 第 7 位控制。\n分页：AD 默认 MaxPageSize 为 1000，超过需 paged results（OID 1.2.840.113556.1.4.319），否则服务端返回 sizeLimitExceeded。\n过滤器：元字符是 * ( ) \\ 与 NUL；注入发生在应用把用户输入直接拼进过滤器时，形如 uid=*)(|(& 的闭合会改变整个表达式的逻辑。JNDI 注入则发生在 Java 应用把用户输入当 LDAP URL 或属性值解析时。\n限制：启用 LDAP 签名或 channel binding 后，依赖 NTLM 中继的路径失效；LDAPS 要求目标证书被客户端信任，自签证书通常直接失败。\n判据：匿名可读 rootDSE 不代表能读目录内容，二者是不同权限。",
+  "commands": [
+    "ldapsearch -x -H ldap://T -b '' -s base namingContexts",
+    "ldapsearch -x -H ldap://T -b '' -s base supportedControl"
+  ],
+  "tags": ["ldap", "protocol"],
+  "source": "实战沉淀",
+  "created_at": "2026-10-16T22:30:00Z"
+}

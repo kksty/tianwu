@@ -1,0 +1,16 @@
+{
+  "id": "kb006",
+  "title": ".NET 反序列化：ViewState 与 Json.NET",
+  "description": "页面带 __VIEWSTATE 或 JSON 出现 $type，需要判断密钥条件与 gadget 时查这条",
+  "detail": "入口形态：ASP.NET 的 __VIEWSTATE 与 __EVENTVALIDATION、BinaryFormatter 二进制流、Json.NET 的 $type 字段。ViewState 校验：validationKey 与 decryptionKey 来自 web.config 的 machineKey 节点，未配置时自动生成，密钥随机器产生，无法离线推导；.NET 4.5.2 起强制启用 ViewStateMac，关闭无效；__VIEWSTATEGENERATOR 由页面路径计算，路径不符同样返回 500。Json.NET：TypeNameHandling 默认 None，为 Auto 或 All 时才解析类型名；ObjectDataProvider 位于 WPF 程序集，方法名与参数可指向 Process 类。可用 gadget：TypeConfuseDelegate、WindowsIdentity、PSObject、TextFormattingRunProperties。坑：IIS 开自定义错误时只回 500 无堆栈；自动生成的密钥必须从配置读取，不能猜；BinaryFormatter 流以 00 01 00 00 00 FF FF FF FF 开头。判据：提交后 500 且长度变化多为 MAC 校验失败；返回正常页面说明 ViewState 被忽略。",
+  "commands": [
+    "curl -s http://T/ | grep -oE '__VIEWSTATE|__EVENTVALIDATION'",
+    "curl -sI http://T/"
+  ],
+  "tags": [
+    "dotnet",
+    "deser"
+  ],
+  "source": "笔记：反序列化漏洞",
+  "created_at": "2026-11-02T00:00:00Z"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "kb022",
+  "title": "中间件与数据库默认口令与入口路径",
+  "description": "后台、数据库、中间件管理台的出厂默认账号及对应入口",
+  "detail": "后台：admin/admin、admin/123456、admin/admin888、root/root、test/test。\n数据库：MySQL root/root、root 空口令、root/mysql；MSSQL sa/sa；Redis 6379、MongoDB 27017、ZooKeeper 2181、Elasticsearch 9200 默认无认证。\n中间件：Tomcat tomcat/tomcat（/manager/html）、WebLogic weblogic/weblogic123（/console）、JBoss admin/admin（/jmx-console）、RabbitMQ guest/guest（15672，仅 localhost）、Nacos nacos/nacos（/nacos）、Grafana admin/admin、Druid /druid/index.html 无认证。\n判据：登录 200 且下发 Cookie 即通过；401 为认证层拦截，302 跳登录页。\n坑：Tomcat 管理台需 manager-gui 角色；WebLogic 登录页在 /console/login/LoginForm.jsp。\n限制：多数产品首次登录强制改密，出厂口令只在未初始化实例有效；RabbitMQ 的 guest 默认禁止远程登录。",
+  "commands": [
+    "curl -s http://T/manager/html -o /dev/null -w '%{http_code}'",
+    "curl -s http://T/nacos/ -o /dev/null -w '%{http_code}'"
+  ],
+  "tags": [
+    "cred",
+    "recon"
+  ],
+  "source": "经验",
+  "created_at": "2026-10-15T13:44:05Z"
+}

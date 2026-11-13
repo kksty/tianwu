@@ -1,0 +1,16 @@
+{
+  "id": "kb005",
+  "title": "PHP 反序列化：格式与 phar 触发",
+  "description": "参数里出现 O:8:\"类名\" 结构，需要核对格式、魔术方法与触发条件时查这条",
+  "detail": "格式：O:8:\"pingTest\":1:{s:9:\"ipAddress\";s:9:\"127.0.0.1\";}；O 为对象、数字是类名长度，花括号内为属性；类型前缀 b 布尔、i 整数、s 字符串、a 数组、N 空值、C 实现 Serializable 的对象。属性可见性前缀计入长度：public 无前缀，protected 为 NUL 加星号加 NUL，private 为 NUL 加类名加 NUL，长度写错整体失败。魔术方法：__destruct、__wakeup、__toString、__call、__get、__invoke 是链入口，参数最终流入 system、shell_exec、eval、file_put_contents 才构成执行。版本：CVE-2016-7124 的 __wakeup 绕过影响 PHP 5.6.25 之前与 7.0.10 之前。phar 触发：phar:// 在任意文件操作时解析元数据并反序列化，不需要 unserialize；phar.readonly 默认 On。坑：二次 urldecode 会破坏 NUL 前缀；session.serialize_handler 为 php 时格式为键加竖线加序列化值。判据：500 且日志报 unserialize 错误说明格式或长度错；有回显无执行说明链条件不满足。",
+  "commands": [
+    "php -v",
+    "php -i | grep -E 'phar.readonly|session.serialize_handler'"
+  ],
+  "tags": [
+    "php",
+    "deser"
+  ],
+  "source": "笔记：反序列化漏洞",
+  "created_at": "2026-11-02T00:00:00Z"
+}

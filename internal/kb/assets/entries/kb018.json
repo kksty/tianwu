@@ -1,0 +1,15 @@
+{
+  "id": "kb018",
+  "title": "JNDI 类漏洞的触发条件与特征",
+  "description": "Log4j2、Shiro、Fastjson、ThinkPHP 的触发入口、版本判据与出网前置条件",
+  "detail": "判据：字符串进入 log4j2 的日志记录（header、参数、UA、异常信息）即被解析，影响 2.0-beta9–2.14.1，特征为 ${jndi: 前缀；回连需目标可出网到 LDAP 或 RMI 端口（常用 1389、1099）。\nShiro：rememberMe Cookie 走 base64 反序列化，密钥硬编码时（≤1.2.4，常见 kPH+bIxk5D2deZiIxcaaaA==）可伪造；1.2.5 起为随机密钥，Shiro-721 另走填充 oracle。\nFastjson：≤1.2.24 无 autoType 校验，1.2.47 有缓存缺陷使该校验失效；请求体 JSON 出现 @type 且目标类在 classpath（如 JdbcRowSetImpl）才成立。\nThinkPHP 5.x：路由 s=index/think\\app/invokefunction 把参数映射到 call_user_func_array。\nConfluence CVE-2023-22527：8.0.x–8.5.3 的 OGNL 在模板渲染上下文求值。\n限制：不出网时 JNDI 不可达，只剩本地 gadget；JDK 高版本默认禁远程 codebase。",
+  "commands": [
+    "curl -s http://T/ -D - -o /dev/null | grep -iE 'server|x-powered-by|set-cookie'"
+  ],
+  "tags": [
+    "cve",
+    "rce"
+  ],
+  "source": "审计补强",
+  "created_at": "2026-10-17T00:25:00Z"
+}
