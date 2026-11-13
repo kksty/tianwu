@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  useConfirm,
 } from '@cyber/ui'
 import { api } from '@/lib/api'
 import { nonNegativeInteger } from '@/lib/settings'
@@ -35,12 +36,15 @@ const PRESETS = [
  * the catalogue read is an explicit secondary action, and the advanced block
  * stays collapsed until something in it was already set.
  */
-export function ModelProfileEditor({ profile, onSaved, onCancel, onBusy }: {
+export function ModelProfileEditor({ profile, active, onSaved, onCancel, onBusy }: {
   profile?: ModelProfile
+  /** This profile is the instance's active one: saving it restarts the local host. */
+  active?: boolean
   onSaved: (id: string) => void
   onCancel: () => void
   onBusy: (busy: boolean) => void
 }) {
+  const confirm = useConfirm()
   const [draft, setDraft] = useState({
     id: profile?.id ?? '', name: profile?.name ?? '', provider: profile?.provider || 'openai',
     base_url: profile?.base_url ?? '', model: profile?.model ?? '', api_key: '', proxy: profile?.proxy ?? '',
@@ -76,6 +80,18 @@ export function ModelProfileEditor({ profile, onSaved, onCancel, onBusy }: {
       try { url = new URL(draft.base_url.trim()) } catch { throw new Error('API 地址需要完整的 http:// 或 https:// 地址') }
       if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error('API 地址只支持 HTTP 或 HTTPS')
       if (!draft.api_key.trim() && !profile?.api_key_set && !profile?.api_key_count) throw new Error('请填写 API Key；无认证的本地服务可按服务要求填写占位凭据')
+      // Editing the profile the instance is using changes what the local host
+      // must start with, so the server restarts it — and a host restart kills
+      // every local AOP session, i.e. the runs in flight on that node fail.
+      // That is easy to trigger mid-round (e.g. tuning context_window), so it
+      // must be an explicit decision, not a silent side effect of "保存配置".
+      if (active && profile && !await confirm({
+        title: `保存 ${profile.name || profile.id} 会重启本机宿主`,
+        description: '这个配置正在被实例使用：保存后默认本机宿主会按新配置重启，其上正在运行的任务会中断（失败后可重试）。不改动它就不会重启。',
+        confirmLabel: '保存并重启',
+        cancelLabel: '取消',
+        destructive: true,
+      })) return
       const body = {
         name: draft.name.trim(), provider: draft.provider.trim(), base_url: draft.base_url.trim(),
         model: draft.model.trim(), api_key: draft.api_key.trim(), proxy: draft.proxy.trim(), tier: draft.tier,
@@ -203,7 +219,7 @@ export function ModelProfileEditor({ profile, onSaved, onCancel, onBusy }: {
           {busy === 'save' ? '保存中…' : '保存配置'}
         </Button>
         <Button type="button" size="sm" variant="outline" disabled={Boolean(busy)} onClick={onCancel}>取消编辑</Button>
-        <span className="text-[11px] text-ink-3">保存不切换实例默认；已有运行保留原绑定。</span>
+        <span className="text-[11px] text-ink-3">保存不切换实例默认；其他配置的已有运行保留原绑定。保存正在使用的配置会重启本机宿主，运行中的任务会中断。</span>
       </div>
     </fieldset>
     <div role="status" className="mt-3 space-y-2">

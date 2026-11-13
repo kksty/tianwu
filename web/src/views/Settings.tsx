@@ -254,6 +254,7 @@ export function SettingsPage() {
               <ModelProfileEditor
                 key={editing === 'new' ? '__new' : editing.id}
                 profile={editing === 'new' ? undefined : editing}
+                active={editing !== 'new' && editing.id === active}
                 onSaved={saved}
                 onCancel={() => setEditing(null)}
                 onBusy={setEditorBusy}
@@ -438,7 +439,7 @@ export function SettingsPage() {
             {catalogue.data?.has_overrides && <Callout tone="warning">检测到 llm 下的平铺覆盖字段。它们可能遮盖命名配置，后端会拒绝切换默认。请检查配置文件并显式处理覆盖字段。</Callout>}
             <dl className="space-y-3.5">
               {[
-                ['模型配置', '保存后供后续选择使用，当前运行保留原绑定；更改实例默认会重启默认本机宿主，确认框会说明影响。远端 AOP 节点使用自己的宿主模型配置。'],
+                ['模型配置', '保存其他配置只影响后续选择，当前运行保留原绑定；保存正在使用的配置会重启默认本机宿主，确认框会说明影响（运行中的任务会中断，失败后可重试）。更改实例默认同样重启。远端 AOP 节点使用自己的宿主模型配置。'],
                 ['项目默认', '指挥官模型对应 strong_profile，执行者默认模型对应 worker_profile。两个字段可指向同一配置。显式指定模型的意图优先使用自己的配置。'],
                 ['运行选项', '并发调整只影响后续派发；单轮时限仅约束指挥官当轮决策，不是项目总时长，也不是费用控制。暂停与目标完成后的休眠继续由运行机制负责。'],
                 ['高级资源标注', 'tier 的 strong／worker 为兼容现有路由保留，不是固定角色，不代表模型 reasoning effort。角色由任务决定，无需凑齐层级。'],
