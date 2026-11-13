@@ -229,7 +229,10 @@ func (h *hub) saveModelProfile(w http.ResponseWriter, r *http.Request, id string
 	// read that profile at startup and must be restarted, exactly as the
 	// settings form does. Editing another profile touches only its next run.
 	if active := h.activeProfileID(); active == saved.ID {
-		h.applyModel(h.settings.Effective())
+		if err := h.applyModel(h.settings.Effective()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "模型配置已保存，但准备宿主运行配置失败：" + err.Error()})
+			return
+		}
 	}
 	view, ok := h.modelProfileView(saved.ID)
 	if !ok {
@@ -257,7 +260,10 @@ func (h *hub) activateModelProfile(w http.ResponseWriter, id string) {
 	// The default host and the commander read the active profile at process
 	// start; restart the host (its running runs fail and can be retried) so the
 	// instance default really is the profile the console now shows.
-	h.applyModel(h.settings.Effective())
+	if err := h.applyModel(h.settings.Effective()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "默认模型已保存，但准备宿主运行配置失败：" + err.Error()})
+		return
+	}
 	view, ok := h.modelProfileView(saved.ID)
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{"id": saved.ID, "active": true})

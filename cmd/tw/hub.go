@@ -842,7 +842,10 @@ func (h *hub) serveSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
-		h.applyModel(next)
+		if err := h.applyModel(next); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "设置已保存，但准备宿主运行配置失败：" + err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusOK, h.settings.View())
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "只支持 GET / PUT"})
@@ -934,10 +937,18 @@ func (h *hub) serveFleet(w http.ResponseWriter, r *http.Request) {
 // 这一轮失败 / agent provider is nil"): the wake is deferred until the host is
 // ready again, which AddOnReady reports (D111). A save that changes nothing does
 // not restart and wakes immediately as before.
-func (h *hub) applyModel(m settings.Model) {
+func (h *hub) applyModel(m settings.Model) error {
 	m = h.clampMaxTokens(m)
+	args := m.Args()
+	if h.settings != nil && (h.cfg.Nodes != nil || h.cfg.LocalHost != nil) {
+		var err error
+		args, err = runtimeHarnessArgs(h.settings, h.cfg.DataDir, m)
+		if err != nil {
+			return err
+		}
+	}
 	if h.cfg.Nodes != nil {
-		h.cfg.Nodes.SetLLM(m.Env(), m.Args())
+		h.cfg.Nodes.SetLLM(m.Env(), args)
 	}
 	restarting := false
 	if h.cfg.LocalHost != nil {
@@ -946,7 +957,7 @@ func (h *hub) applyModel(m settings.Model) {
 		// harness sessions keep their battlefield API access after a settings
 		// save restarts the host (D109).
 		env := hostEnvWithAgentToken(m.Env(), h.cfg.ConsoleToken)
-		restarting = h.cfg.LocalHost.Update(env, m.Args())
+		restarting = h.cfg.LocalHost.Update(env, args)
 	}
 	// Every project's live progress bar measures against the same profile.
 	cw := m.ContextWindow
@@ -974,9 +985,10 @@ func (h *hub) applyModel(m settings.Model) {
 	}
 	if restarting {
 		log.Printf("settings: 本机宿主按新配置重启中；就绪后再唤醒各项目（避免在重启窗口开轮）")
-		return
+		return nil
 	}
 	h.wakeAll("settings")
+	return nil
 }
 
 func (h *hub) wakeAll(reason string) {

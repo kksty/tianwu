@@ -268,6 +268,10 @@ func main() {
 		_ = os.Setenv(modelclient.EnvModel, *modelName)
 	}
 	eff := st.Effective()
+	harnessArgs, err := runtimeHarnessArgs(st, data, eff)
+	if err != nil {
+		log.Fatalf("准备宿主运行配置：%v", err)
+	}
 	// The harness reads the same values from its own env/flags; the local host
 	// gets them at start, and audit runs get them per run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -321,7 +325,7 @@ func main() {
 		// even when tw itself was started with it.
 		Env:             hostEnvWithAgentToken(eff.Env(), token),
 		DropEnvPrefixes: []string{"TW_CONSOLE_TOKEN"},
-		Args:            eff.Args(),
+		Args:            harnessArgs,
 		ExcludeTools:    excludeTools,
 		// The local host is the one endpoint recorded on disk: its PID is how
 		// the next start knows the previous process did not stop cleanly.
@@ -427,7 +431,7 @@ func main() {
 	if excludeTools != "" {
 		auditEnv = append(auditEnv, "CYBER_EXCLUDE_TOOLS="+excludeTools)
 	}
-	nodes.SetLLM(auditEnv, eff.Args())
+	nodes.SetLLM(auditEnv, harnessArgs)
 	// A named model profile runs on its own local host, started lazily with a
 	// one-profile configuration. The default model keeps using the host above,
 	// so an instance with one profile behaves exactly as before.

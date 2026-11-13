@@ -934,14 +934,12 @@ func (s *Store) WriteProfileConfig(id, dest string) error {
 		mapDelete(llm, key)
 	}
 	entry := cloneNode(source)
-	// pricing / tier / api_keys / max_concurrency / fallback are Tianwu
+	// pricing / tier / api_keys / max_concurrency / fallback / paused are Tianwu
 	// metadata, not harness provider fields: the harness parses this file
 	// strictly and rejects unknown keys, so the host configuration must carry
 	// only what the harness understands. The entry in the operator's file keeps
 	// them; this materialised copy is for the host.
-	for _, key := range []string{"pricing", "tier", "api_keys", "max_concurrency", "fallback", "paused"} {
-		mapDelete(entry, key)
-	}
+	stripProfileMetadata(entry)
 	// The harness reads exactly one api_key. When the profile has a key pool,
 	// the materialised config carries the entry the rotation cursor selects,
 	// so a rotation is "write this file again + restart the host", not a
