@@ -63,9 +63,17 @@ func (h *hub) serveModelProfile(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, status, map[string]any{"error": err.Error()})
 			return
 		}
-		if !p.Paused {
-			h.wakeAll("model_profile_resumed")
+		h.mu.RLock()
+		for _, k := range h.kits {
+			if k.dec != nil {
+				if name, window := k.srv.CommanderModelInfo(); name != "" {
+					k.dec.SetModelName(name)
+					k.dec.SetContextWindow(window)
+				}
+				k.dec.Wake("model_profile_admission_changed")
+			}
 		}
+		h.mu.RUnlock()
 		// Admission metadata changes never restart or cancel a live host.
 		writeJSON(w, http.StatusOK, map[string]any{"id": p.ID, "paused": p.Paused, "runnable": p.Runnable()})
 		return

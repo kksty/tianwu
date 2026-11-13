@@ -765,6 +765,8 @@ type Run struct {
 	// project's worker-tier default, "default" for the instance active profile,
 	// "commander_strong" for an explicit project commander profile, "fallback" when the control plane
 	// switched to the profile's configured fallback after its credentials died.
+	// A "_fallback" suffix on an inherited default records that the configured
+	// default was paused and this new call selected another available profile.
 	// Empty on old rows (D89).
 	ProfileSource string `json:"profile_source,omitempty"`
 	// FallbackFrom is set on the one new run created after a credential failure

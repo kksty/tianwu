@@ -368,17 +368,9 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 	// node router as intents — the run records Purpose, not a fake node id.
 	if h.cfg.Nodes != nil {
 		admitAuxiliary := func(ctx context.Context) (func(), error) {
-			release, err := h.auxiliaryGate.Acquire(ctx)
-			if err != nil {
-				return nil, err
-			}
-			if err := srv.CheckLocalHost(); err != nil {
-				release()
-				return nil, err
-			}
-			return release, nil
+			return h.auxiliaryGate.Acquire(ctx)
 		}
-		vExec := executor.Executor(h.cfg.Nodes.Executor(h.cfg.Timeout))
+		vExec := srv.DefaultModelExecutor(h.cfg.Nodes.Executor(h.cfg.Timeout))
 		vf := verifier.New(p.Store, vExec, p.CaseDir)
 		vf.Policy = p.PremisePolicyView
 		vf.ScopeFor = srv.Briefing
@@ -401,7 +393,7 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 			Policy:   p.PremisePolicyView,
 			Admit:    admitAuxiliary,
 			Store:    p.Store,
-			Exec:     h.cfg.Nodes.Executor(h.cfg.Timeout),
+			Exec:     srv.DefaultModelExecutor(h.cfg.Nodes.Executor(h.cfg.Timeout)),
 			CaseRoot: p.CaseDir,
 			Scope:    srv.Briefing(),
 			Timeout:  h.cfg.Timeout,

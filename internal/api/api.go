@@ -1223,14 +1223,18 @@ func (s *Server) planRun(in model.Intent, continuedFrom, profileOverride, fallba
 				// incomplete or the gateway does not serve its model) the dispatch
 				// must fail visibly instead of silently running the instance's
 				// flat/env model while the run card claims a profile (task-13).
-				binding, err := s.profileBinding(profileID)
+				binding, switched, err := s.inheritedProfileBinding(profileID)
 				if err != nil {
 					return model.Run{}, "", fmt.Errorf("默认模型配置不可用：%w", err)
 				}
-				if source == "project_worker" {
+				if source == "project_worker" || switched {
 					// Record the project default the intent inherited; the
 					// "" of the old behaviour would hide where it ran.
-					run.Profile = profileID
+					run.Profile = binding.ID
+				}
+				if switched {
+					source += "_fallback"
+					run.Warnings = append(run.Warnings, fmt.Sprintf("默认模型配置 %s 已暂停，本次运行自动使用 %s", profileID, binding.ID))
 				}
 				run.ResolvedProfile = binding.ID
 				run.ProfileRevision = binding.Revision

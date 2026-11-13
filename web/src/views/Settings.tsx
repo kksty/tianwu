@@ -84,7 +84,7 @@ export function SettingsPage() {
       const paused = !profile.paused
       await api.pauseProfile(profile.id, paused)
       setNotice({ tone: 'success', text: paused
-        ? `${profile.name || profile.id} 已暂停。配置和当前运行保留，后续运行需恢复使用或选择其他模型。`
+        ? `${profile.name || profile.id} 已暂停。当前运行继续；使用它作为默认模型的新运行会自动选择其他可用模型，恢复后重新使用原默认。`
         : `${profile.name || profile.id} 已恢复使用。` })
       catalogue.reload(); settings.reload()
     })

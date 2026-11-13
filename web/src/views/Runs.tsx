@@ -30,8 +30,12 @@ import type { Event, Intent, Run } from '@/lib/types'
 const PROFILE_SOURCE_LABEL: Record<string, string> = {
   explicit: '显式指定',
   default: '实例默认',
+  default_fallback: '默认模型暂停后自动切换',
   project_worker: '项目 worker 档',
+  project_worker_fallback: '项目默认暂停后自动切换',
   project_strong: '项目 strong 档',
+  commander_strong: '项目指挥官默认',
+  commander_strong_fallback: '指挥官默认暂停后自动切换',
 }
 
 /**

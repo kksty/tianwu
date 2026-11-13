@@ -1,7 +1,7 @@
 import type { ModelProfile, ProjectInfo } from './types.ts'
 
 export function profileStatus(p: Pick<ModelProfile, 'runnable' | 'probed' | 'available' | 'probe_error' | 'paused' | 'probe_kind' | 'returned_model'>) {
-  if (p.paused) return { label: '已暂停', tone: 'muted' as const, detail: '配置已保留，不接受新运行；已在执行的运行继续完成。' }
+  if (p.paused) return { label: '已暂停', tone: 'muted' as const, detail: '此配置不接受新运行，当前运行继续；默认调用自动选择其他可用模型，显式指定此配置需先恢复使用。' }
   if (!p.runnable) return { label: '配置不完整', tone: 'warning' as const, detail: '补齐端点、模型与凭据后才能执行。' }
   if (p.probe_kind === 'connectivity' && p.probed) {
     if (!p.available) return { label: '连接失败', tone: 'danger' as const, detail: p.probe_error || '未收到有效推理回复。' }

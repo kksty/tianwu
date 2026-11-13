@@ -114,29 +114,35 @@ func (s *Server) CommanderRoundContext() decider.RoundContext {
 	return rc
 }
 
-// commanderProfile resolves the selected binding. A named project profile
-// routes through the existing host pool; otherwise the default host is used.
-func (s *Server) commanderProfile() (requested, actual string) {
-	actual = s.activeProfile()
-	requested = actual
-	if s.ProjectProfiles != nil {
-		if strong := strings.TrimSpace(s.ProjectProfiles.Strong); strong != "" {
-			requested, actual = strong, strong
-		}
-	}
-	return requested, actual
+func (s *Server) commanderRoute() string {
+	_, route, _, _ := s.resolveCommanderProfile()
+	return route
 }
 
-func (s *Server) commanderRoute() string {
+func (s *Server) resolveCommanderProfile() (binding ProfileInfo, route, source string, err error) {
+	id, source := "", "default"
 	if s.ProjectProfiles != nil {
-		return strings.TrimSpace(s.ProjectProfiles.Strong)
+		id = strings.TrimSpace(s.ProjectProfiles.Strong)
+		if id != "" {
+			source = "commander_strong"
+		}
 	}
-	return ""
+	binding, switched, err := s.inheritedProfileBinding(id)
+	if err != nil {
+		return ProfileInfo{}, "", "", err
+	}
+	if id != "" || switched {
+		route = binding.ID
+	}
+	if switched {
+		source += "_fallback"
+	}
+	return binding, route, source, nil
 }
 
 func (s *Server) CheckCommanderHost() error {
-	if profile := s.commanderRoute(); profile != "" {
-		_, err := s.profileBinding(profile)
+	_, route, _, err := s.resolveCommanderProfile()
+	if err != nil || route != "" {
 		return err
 	}
 	return s.CheckLocalHost()
@@ -144,15 +150,8 @@ func (s *Server) CheckCommanderHost() error {
 
 // CommanderModelInfo follows the actual binding; unknown windows stay unknown.
 func (s *Server) CommanderModelInfo() (string, int) {
-	_, id := s.commanderProfile()
-	if s.Profiles != nil {
-		if profiles, _, err := s.Profiles(); err == nil {
-			for _, p := range profiles {
-				if p.ID == id {
-					return p.Model, p.ContextWindow
-				}
-			}
-		}
+	if binding, _, _, err := s.resolveCommanderProfile(); err == nil && binding.ID != "" {
+		return binding.Model, binding.ContextWindow
 	}
 	return "", s.ModelContext()
 }
@@ -183,12 +182,11 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// is nil") instead of the actionable sentence (D111). Refuse before AddRun so
 	// the round leaves no failed run row; the host-ready wake starts the next one.
 	node := executor.ResolveNode(s.Exec, "")
-	route := s.commanderRoute()
-	if route != "" {
-		if _, err := s.profileBinding(route); err != nil {
-			return executor.Result{}, nil, err
-		}
-	} else if node == s.LocalNode {
+	binding, route, profileSource, err := s.resolveCommanderProfile()
+	if err != nil {
+		return executor.Result{}, nil, err
+	}
+	if route == "" && node == s.LocalNode {
 		if err := s.CheckLocalHost(); err != nil {
 			return executor.Result{}, nil, err
 		}
@@ -209,31 +207,18 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 	// Freeze the tier binding on the run, like dispatch does for intent runs
 	// (D81/D84), rather than reading editable settings to describe history.
 	run := model.Run{Node: node, Purpose: "commander", ContextWindow: s.ModelContext()}
-	actual := s.activeProfile()
-	requested := actual
-	if route != "" {
-		requested, actual = route, route
-	}
-	if requested != "" {
-		run.Profile = requested
-		run.ProfileSource = "default"
-		if route != "" {
-			run.ProfileSource = "commander_strong"
-		}
-	}
-	if s.Profiles != nil {
-		if binding, err := s.profileBinding(actual); err == nil {
-			run.ResolvedProfile = binding.ID
-			run.ProfileRevision = binding.Revision
-			run.Tier = binding.Tier
-			run.Provider, run.Model = binding.Provider, binding.Model
-			if route != "" || binding.ContextWindow > 0 {
-				run.ContextWindow = binding.ContextWindow
-			}
+	if binding.ID != "" {
+		run.Profile, run.ResolvedProfile = binding.ID, binding.ID
+		run.ProfileSource = profileSource
+		run.ProfileRevision = binding.Revision
+		run.Tier = binding.Tier
+		run.Provider, run.Model = binding.Provider, binding.Model
+		if route != "" || binding.ContextWindow > 0 {
+			run.ContextWindow = binding.ContextWindow
 		}
 	}
 
-	run, err := s.Store.AddRun(run)
+	run, err = s.Store.AddRun(run)
 	if err != nil {
 		return executor.Result{}, nil, err
 	}

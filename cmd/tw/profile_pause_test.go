@@ -8,8 +8,42 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kksty/tianwu/internal/api"
+	"github.com/kksty/tianwu/internal/decider"
 	"github.com/kksty/tianwu/internal/settings"
 )
+
+func TestProfilePauseUpdatesCommanderModelWithoutActivatingReplacement(t *testing.T) {
+	h, _ := profileHub(t)
+	if _, err := h.settings.SaveProfile(settings.Profile{ID: "slow", BaseURL: "http://slow:8080", APIKey: "slow-secret", Model: "slow-model", ContextWindow: 64000}); err != nil {
+		t.Fatal(err)
+	}
+	srv := &api.Server{Profiles: func() ([]api.ProfileInfo, string, error) {
+		cat, err := h.settings.Profiles()
+		var profiles []api.ProfileInfo
+		for _, p := range cat.Profiles {
+			profiles = append(profiles, api.ProfileInfo{ID: p.ID, Model: p.Model, Runnable: p.Runnable, Paused: p.Paused, ContextWindow: p.ContextWindow})
+		}
+		return profiles, cat.ActiveProfile, err
+	}}
+	runner := decider.NewRunner(nil, nil, "")
+	h.kits = map[string]*kit{"fixture": {srv: srv, dec: runner}}
+	for _, paused := range []bool{true, false} {
+		if rec := callProfile(t, h, http.MethodPost, "/api/model-profiles/fast/pause", map[string]any{"paused": paused}); rec.Code != http.StatusOK {
+			t.Fatalf("pause=%t: %s", paused, rec.Body.String())
+		}
+		want := "fast-model"
+		if paused {
+			want = "slow-model"
+			if runner.ContextWindow != 64000 {
+				t.Fatalf("replacement window=%d", runner.ContextWindow)
+			}
+		}
+		if runner.ModelName != want || h.activeProfileID() != "fast" {
+			t.Fatalf("pause=%t model=%s default=%s", paused, runner.ModelName, h.activeProfileID())
+		}
+	}
+}
 
 func TestProfilePauseEndpointKeepsDefaultAndRejectsImplicitResume(t *testing.T) {
 	h, _ := profileHub(t)
