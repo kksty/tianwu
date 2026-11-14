@@ -22,7 +22,12 @@ async function api(url, req) {
   if (url.pathname.endsWith('/api/board')) return { scope: '隔离测试', project_paused: true, decider: {paused: true, enabled: true, paused_reason: '隔离验收暂停'}, running_intents: [], intents: { total: 1, running: 0 }, facts: { total: 0 }, goals: { total: 0, met: 0 }, runs: { total: 0 }, recent_facts: [], open: [], running: [], frontier: [], pulse: [], alerts: [] };
   if (url.pathname.endsWith('/api/intents')) return { intents: [{ id: 'in_parent', title: '应用方向', status: 'pending' }], has_more: false };
   if (url.pathname.endsWith('/api/participants')) return { participants: [] };
-  if (url.pathname.endsWith('/api/messages')) return { messages: [] };
+  if (url.pathname.endsWith('/api/messages')) return { messages: [
+    { id: 'm_1', seq: 1, project_id: 'fixture', from_participant_id: 'operator', to_participant_id: 'commander', kind: 'say', text: '一条普通对话', status: 'queued', created_at: at, updated_at: at },
+    { id: 'm_2', seq: 2, project_id: 'fixture', from_participant_id: 'operator', to_participant_id: 'commander', kind: 'instruction', instruction_id: 'instruction_old', instruction_version: 1, text: '持久指令 instruction_old 已更新至 v1（active）。这是变更通知；当前有效口径以本轮指令全集为准。', status: 'queued', created_at: at, updated_at: at },
+    // The same revision delivered to a second recipient: one change, two rows.
+    { id: 'm_3', seq: 3, project_id: 'fixture', from_participant_id: 'operator', to_participant_id: 'pt_in_parent', kind: 'instruction', instruction_id: 'instruction_old', instruction_version: 1, text: '持久指令 instruction_old 已更新至 v1（active）。这是变更通知；当前有效口径以本轮指令全集为准。', status: 'queued', created_at: at, updated_at: at },
+  ] };
   if (url.pathname.endsWith('/api/directives')) {
     assert.ok(body.idempotency_key); writes.push(body);
     assert.equal(body.persistent, true, 'acceptance creates a persistent directive');
@@ -93,15 +98,30 @@ async function api(url, req) {
     };
     const wait = async expression => { for (let n = 0; n < 100; n++) { if (await evaluate(expression)) return; await pause(75); } throw new Error('Timed out: ' + expression + '\n' + await evaluate('document.body.innerText') + '\n' + JSON.stringify(errors)); };
     const text = value => wait('document.body.innerText.includes(' + JSON.stringify(value) + ')');
-    const click = label => evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()===${JSON.stringify(label)});if(!b)throw Error('Missing button '+${JSON.stringify(label)});b.click()})()`);
+    // A click waits for an enabled match: a refresh in flight disables the
+    // buttons it is about to replace, and clicking a disabled button is a
+    // silent no-op that would otherwise surface as a later timeout.
+    const clickOnce = (selector, label) => evaluate(`(()=>{const b=[...document.querySelectorAll(${JSON.stringify(selector)}+' button')].find(b=>b.getClientRects().length&&!b.disabled&&b.textContent.trim()===${JSON.stringify(label)});if(!b)return false;b.click();return true})()`);
+    const press = async (selector, label) => {
+      for (let n = 0; n < 60; n++) { if (await clickOnce(selector, label)) return; await pause(75); }
+      throw new Error('Missing enabled button ' + label);
+    };
+    const click = label => press('', label);
+    const clickIn = (selector, label) => press(selector, label);
     const fill = value => evaluate(`(()=>{const e=document.querySelector('textarea[aria-label="持久指令正文"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+    const fillNew = value => evaluate(`(()=>{const e=document.querySelector('textarea[aria-label="新指令正文"]');if(!e)throw Error('Missing create form');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     const fillComposer = value => evaluate(`(()=>{const e=document.querySelector('[data-directive-composer] textarea');if(!e)throw Error('Missing directive composer');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}))})()`);
     const openRow = value => evaluate(`(()=>{const b=[...document.querySelectorAll('[data-instructions-panel] button')].find(b=>b.textContent.includes(${JSON.stringify(value)}));if(!b)throw Error('Missing row');b.click()})()`);
     const check = (name, passed) => { checks.push({ name, passed }); assert.ok(passed, name); };
     const shot = async name => { const result = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); fs.writeFileSync(path.join(out, name + '.png'), Buffer.from(result.data, 'base64')); };
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await call('Page.navigate', { url: 'http://tianwu.test/p/fixture/?view=messages' });
-    await text('持久指令'); await click('持久指令'); await text('初始范围约束');
+    await text('持久指令'); await text('一条普通对话');
+    await text('1 次持久指令变更已折叠');
+    check('instruction-change notices fold out of the conversation stream',
+      await evaluate(`!document.body.innerText.includes('这是变更通知')`));
+    await shot('conversation-folded');
+    await click('持久指令'); await text('初始范围约束');
     await click('持续到撤销');
     await fillComposer('后续任务也须遵守的约束');
     await click('创建指令'); await text('持久指令已保存'); await text('后续任务也须遵守的约束');
@@ -118,6 +138,17 @@ async function api(url, req) {
     check('revocation remains visible and preserves the text', rows[0].state === 'revoked' && rows[0].text === '更正后的持久约束');
     await openRow('更正后的持久约束'); await click('修订历史'); await text('初始范围约束');
     check('revision history includes original and revoked versions', history.get(rows[0].id).length === 4);
+    // The panel is the management surface: it can add a row without going back
+    // to the 下发 box, and the composer echo shows the standing set while the
+    // operator is about to write one more sentence.
+    await clickIn('[data-instructions-panel]', '新增指令');
+    await text('只在确实需要追加一条独立约束时使用');
+    await shot('instructions-create');
+    await fillNew('面板里新建的独立约束');
+    await clickIn('[data-instructions-panel]', '创建指令');
+    await wait(`document.body.innerText.includes('面板里新建的独立约束')`);
+    check('the management panel creates an instruction in place', writes.at(-1).text === '面板里新建的独立约束' && rows.length === 3);
+    check('the composer echoes the standing instruction set', await evaluate(`!!document.querySelector('[data-instruction-set]') && document.querySelector('[data-instruction-set]').innerText.includes('当前生效')`));
     await shot('instructions-desktop');
     await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await pause(200);

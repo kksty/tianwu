@@ -211,6 +211,7 @@ export function ProjectState({
                   onPickRun={setPickedRun}
                   onOpenIntent={onOpenIntent}
                   onOpenRun={onOpenRun}
+                  onRunsChanged={retry}
                   className="min-h-[420px] xl:min-h-0"
                 />
               </div>
@@ -443,7 +444,7 @@ function CommanderLive({ board }: { board?: BoardResponse }) {
         <div className="mt-1.5 flex items-start gap-1.5 text-[12px] text-warning">
           <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="line-clamp-1" title={board!.handoff_warnings![0]?.warnings.join('\n')}>
-            最近运行有 {board!.handoff_warnings!.length} 条交接告警（见「运行」页）
+            最近 {board!.handoff_warnings!.length} 个历史 run 有非致命告警（见「运行」页）
           </span>
         </div>
       )}
@@ -650,6 +651,7 @@ function UnitDetail({
   onPickRun,
   onOpenIntent,
   onOpenRun,
+  onRunsChanged,
   className,
 }: {
   unit?: Unit
@@ -657,6 +659,7 @@ function UnitDetail({
   onPickRun: (id: string) => void
   onOpenIntent?: (id: string) => void
   onOpenRun?: (id: string) => void
+  onRunsChanged?: () => void
   className?: string
 }) {
   if (!unit) {
@@ -822,6 +825,7 @@ function UnitDetail({
               pulse={pulse}
               attemptIndex={attempts.findIndex((r) => r.id === run.id) + 1}
               onOpenRun={onOpenRun}
+              onRunsChanged={onRunsChanged}
             />
           ) : (
             <EmptyState
@@ -929,15 +933,23 @@ function RunDetail({
   pulse,
   attemptIndex,
   onOpenRun,
+  onRunsChanged,
 }: {
   run: Run
   pulse?: RunPulse
   attemptIndex: number
   onOpenRun?: (id: string) => void
+  onRunsChanged?: () => void
 }) {
   return (
     <div className="space-y-4">
-      <RunMeta run={run} pulse={pulse} attemptIndex={attemptIndex} onOpenRun={onOpenRun} />
+      <RunMeta
+        run={run}
+        pulse={pulse}
+        attemptIndex={attemptIndex}
+        onOpenRun={onOpenRun}
+        onRunsChanged={onRunsChanged}
+      />
       <RunCase key={run.id} run={run} />
     </div>
   )
@@ -948,17 +960,34 @@ function RunMeta({
   pulse,
   attemptIndex,
   onOpenRun,
+  onRunsChanged,
 }: {
   run: Run
   pulse?: RunPulse
   attemptIndex: number
   onOpenRun?: (id: string) => void
+  onRunsChanged?: () => void
 }) {
   const live = run.status === 'running'
   const quiet = pulse?.idle_seconds ?? 0
   const ctxTokens = pulse?.context_tokens ?? 0
   const ctxWindow = pulse?.context_window ?? 0
   const pressure = ctxWindow > 0 ? ctxTokens / ctxWindow : 0
+  const [dismissing, setDismissing] = useState(false)
+  const [dismissError, setDismissError] = useState('')
+
+  async function dismissWarnings() {
+    setDismissing(true)
+    setDismissError('')
+    try {
+      await api.dismissRunWarnings(run.id)
+      onRunsChanged?.()
+    } catch (e) {
+      setDismissError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDismissing(false)
+    }
+  }
 
   return (
     <div data-testid="attempt-meta" className="tw-inset rounded-lg">
@@ -1046,14 +1075,39 @@ function RunMeta({
           {run.brief_path && <Meta label="brief" title={run.brief_path}>{run.brief_path}</Meta>}
         </div>
 
-        {(run.warnings?.length ?? 0) > 0 && (
+        {(run.warnings?.length ?? 0) > 0 &&
+          (run.warnings_dismissed ? (
+            <div className="text-[11px] text-ink-3">
+              交接告警已忽略（{run.warnings!.length} 条，原始记录仍保留在账本）
+            </div>
+          ) : (
+            <details>
+              <summary className="cursor-pointer rounded text-[11px] text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                交接告警 {run.warnings!.length} 条（非致命）
+              </summary>
+              <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-2">
+                {run.warnings!.map((w, i) => (
+                  <li key={i} className="tw-break">{w}</li>
+                ))}
+              </ul>
+              {run.status === 'done' && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <Button size="xs" variant="ghost" onClick={dismissWarnings} disabled={dismissing}>
+                    {dismissing ? '忽略中…' : '忽略这些告警'}
+                  </Button>
+                  {dismissError && <span className="text-[11px] text-destructive">{dismissError}</span>}
+                </div>
+              )}
+            </details>
+          ))}
+        {(run.infos?.length ?? 0) > 0 && (
           <details>
-            <summary className="cursor-pointer rounded text-[11px] text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-              交接告警 {run.warnings!.length} 条（非致命）
+            <summary className="cursor-pointer rounded text-[11px] text-ink-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+              交接提示 {run.infos!.length} 条（非问题）
             </summary>
-            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-2">
-              {run.warnings!.map((w, i) => (
-                <li key={i} className="tw-break">{w}</li>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-ink-3">
+              {run.infos!.map((info, i) => (
+                <li key={i} className="tw-break">{info}</li>
               ))}
             </ul>
           </details>

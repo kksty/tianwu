@@ -319,7 +319,7 @@ export function GraphLegend({ className }: { className?: string }) {
           </div>
 
           <Hint>方块第二行 = 实际模型；力导向视图的虚线环 = 档位。</Hint>
-          <Hint>悬停看详情 · 滚轮缩放 · 拖拽节点 · 双击适配</Hint>
+          <Hint>悬停看详情 · 滚轮缩放 · 拖拽节点 · 右侧面板左缘可拖动调宽</Hint>
         </div>
       )}
     </div>

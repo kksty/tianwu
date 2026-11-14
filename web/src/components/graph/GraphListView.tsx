@@ -22,8 +22,6 @@ function typeText(node: GraphNode): string {
       return `事实 · ${node.kind || '未分类'}`
     case 'step':
       return '意图'
-    case 'ghost':
-      return '意图 · 未产出'
     case 'goal':
       return '目标'
     case 'boundary':
@@ -66,7 +64,14 @@ export function GraphListView({
   onSelect: (id: string | null) => void
   onClose: () => void
 }) {
-  const ordered = useMemo(() => graphNodeOrder(model.nodes), [model])
+  // Ghost rings are not openable: the step row is the direction, and the canvas
+  // deliberately picks nothing on a ghost (see graph/hit.ts). Listing them would
+  // add a second row for the same direction that pins a panel the map refuses to
+  // open — so the list, like the canvas keyboard order, leaves them out.
+  const ordered = useMemo(
+    () => graphNodeOrder(model.nodes.filter((node) => node.type !== 'ghost')),
+    [model],
+  )
   const containerRef = useRef<HTMLDivElement | null>(null)
   const selectedIndex = selected ? ordered.findIndex((node) => node.id === selected) : -1
   const [active, setActive] = useState(() => (selectedIndex >= 0 ? selectedIndex : 0))

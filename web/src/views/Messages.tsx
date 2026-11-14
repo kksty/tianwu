@@ -4,6 +4,7 @@ import { Badge, Button, Callout, EmptyState, ScrollArea, SkeletonList, ToggleGro
 import { Page, Panel } from '@/components/Page'
 import { ChatComposer } from '@/components/ChatComposer'
 import { InstructionsPanel } from '@/components/InstructionsPanel'
+import { instructionNoticeChanges, isInstructionNotice, newestInstructionNotice } from '@/lib/instructions'
 import {
   api,
   backlogSummary,
@@ -94,8 +95,20 @@ export function Messages() {
   // uses; a paused project queues one-shot messages and saves instructions.
   const board = usePoll(api.board, 8000)
   const [directiveSeq, setDirectiveSeq] = useState(0)
+  // Separately from directiveSeq (which remounts the panel), this only tells
+  // the composer's inline standing set that a row changed under it.
+  const [instructionSeq, setInstructionSeq] = useState(0)
   const composerRef = useRef<HTMLDivElement | null>(null)
   const rows = messages.data ?? []
+  // Instruction-change notices are delivery receipts for a constraint that lives
+  // on the 持久指令 page, not conversation. Fold them into one line here; the
+  // raw delivery is still readable under 原生 IOA.
+  const instructionNotices = rows.filter(isInstructionNotice)
+  // One revision fans out to several recipients; the folded line counts
+  // revisions (id@version), not deliveries.
+  const instructionChanges = instructionNoticeChanges(rows)
+  const conversationRows = rows.filter((m) => !isInstructionNotice(m))
+  const latestNotice = newestInstructionNotice(instructionNotices)
   const people = participants.data ?? []
   const paused = Boolean(board.data?.project_paused || board.data?.decider.paused)
   const runningExecutors = board.data?.intents.running ?? 0
@@ -188,17 +201,43 @@ export function Messages() {
                 ariaLabel="通信记录来源"
               >
                 <ToggleGroupItem value="project" className="h-8 px-2.5 text-[12px]">
-                  对话 <span className="tw-nums font-mono">{rows.length}</span>
+                  对话 <span className="tw-nums font-mono">{conversationRows.length}</span>
                 </ToggleGroupItem>
                 <ToggleGroupItem value="instructions" className="h-8 px-2.5 text-[12px]">持久指令</ToggleGroupItem>
                 <ToggleGroupItem value="native" className="h-8 px-2.5 text-[12px]">原生 IOA</ToggleGroupItem>
               </ToggleGroup>
               <span className="ml-auto text-[11px] text-ink-3">
-                {tab === 'project' ? '一条 = 一次投递，不代表已读' : tab === 'native' ? '观察到消息不代表对方已读' : '下发框选择「持续到撤销」创建'}
+                {tab === 'project' ? '一条 = 一次投递，不代表已读' : tab === 'native' ? '观察到消息不代表对方已读' : '新增、更正、撤销都在这里'}
               </span>
             </div>
-            {tab === 'instructions' ? <InstructionsPanel key={directiveSeq} /> : tab === 'native' ? <NativeConversation people={people} /> : (
-              <ProjectConversation rows={rows} people={people} error={messages.error} loading={messages.loading} onRetry={() => messages.reload()} />
+            {tab === 'project' && instructionNotices.length > 0 && (
+              <div
+                data-instruction-notices
+                className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-2/30 px-3 py-1.5 text-[11px] leading-4 text-ink-3"
+              >
+                <span className="text-ink-2">{instructionChanges} 次持久指令变更已折叠</span>
+                {latestNotice && <span className="tw-nums font-mono">最近 {fmtTime(latestNotice.created_at)}</span>}
+                <button
+                  type="button"
+                  onClick={() => setTab('instructions')}
+                  className="rounded text-primary transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  查看持久指令
+                </button>
+                <span className="ml-auto">投递回执；正文在「持久指令」，原始记录在「原生 IOA」</span>
+              </div>
+            )}
+            {tab === 'instructions' ? (
+              <InstructionsPanel key={directiveSeq} onChanged={() => setInstructionSeq((current) => current + 1)} />
+            ) : tab === 'native' ? <NativeConversation people={people} /> : (
+              <ProjectConversation
+                rows={conversationRows}
+                collapsed={instructionNotices.length}
+                people={people}
+                error={messages.error}
+                loading={messages.loading}
+                onRetry={() => messages.reload()}
+              />
             )}
           </Panel>
           {/* The single 下发 entry: the same component as the graph's right dock.
@@ -208,10 +247,17 @@ export function Messages() {
             <ChatComposer
               paused={paused}
               runningExecutors={runningExecutors}
-              onSent={() => {
+              onManageInstructions={() => setTab('instructions')}
+              refreshInstructions={instructionSeq}
+              onSent={(result) => {
                 messages.reload()
                 board.reload()
                 setDirectiveSeq((current) => current + 1)
+                // A new persistent instruction belongs in the set view: the
+                // operator sees the whole standing constraint list right away,
+                // which is when a duplicate or a contradiction is still cheap
+                // to fix (revoke or correct the older row).
+                if (result.kind === 'instruction') setTab('instructions')
               }}
             />
           </div>
@@ -469,8 +515,10 @@ function ParticipantRow({ p }: { p: Participant }) {
   )
 }
 
-function ProjectConversation({ rows, people, error, loading, onRetry }: {
+function ProjectConversation({ rows, collapsed = 0, people, error, loading, onRetry }: {
   rows: Message[]
+  /** Instruction-change notices folded out of the stream. */
+  collapsed?: number
   people: Participant[]
   error?: string
   loading: boolean
@@ -505,8 +553,12 @@ function ProjectConversation({ rows, people, error, loading, onRetry }: {
       <EmptyState
         compact
         icon={MessageSquare}
-        title="还没有消息"
-        description="到「图谱」右侧的下方面板发第一条：只交给指挥官，或同时发给全体执行者。"
+        title={collapsed > 0 ? '对话里没有别的记录' : '还没有消息'}
+        description={
+          collapsed > 0
+            ? `这里只剩 ${collapsed} 条持久指令变更，已折叠到上方一行；指令正文在「持久指令」，原始投递在「原生 IOA」。`
+            : '到「图谱」右侧的下方面板发第一条：只交给指挥官，或同时发给全体执行者。'
+        }
       />
     )}
     <ScrollArea className="min-h-0 flex-1">

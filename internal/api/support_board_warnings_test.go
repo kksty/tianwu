@@ -9,6 +9,56 @@ import (
 	"github.com/kksty/tianwu/internal/model"
 )
 
+// The operator can ignore a finished direction's non-fatal handoff warnings.
+// The run row keeps the text for audit, but the board's handoff_warnings stops
+// counting it, so "2 个历史 run" can go back to 0 without rewriting the ledger.
+func TestDismissRunWarningsHidesBoardRow(t *testing.T) {
+	s, _ := newBindingServer(t)
+	in, err := s.Store.CreateIntent(model.Intent{Title: "已结束方向", Description: "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.UpdateIntent(in.ID, func(i *model.Intent) { i.Status = model.StatusDone }); err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.Store.AddRun(model.Run{IntentID: in.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.UpdateRun(run.ID, func(r *model.Run) {
+		r.Warnings = []string{"历史交接告警"}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := call(t, s, http.MethodPost, "/api/runs/"+run.ID+"/warnings/dismiss", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dismiss = %d: %s", rec.Code, rec.Body.String())
+	}
+	got, ok := s.Store.GetRun(run.ID)
+	if !ok || !got.WarningsDismissed {
+		t.Fatalf("run warnings_dismissed = %+v", got)
+	}
+
+	board := serveMux(t, s, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if board.Code != http.StatusOK {
+		t.Fatalf("board = %d: %s", board.Code, board.Body.String())
+	}
+	var body struct {
+		HandoffWarnings []struct {
+			Run string `json:"run"`
+		} `json:"handoff_warnings"`
+	}
+	if err := json.Unmarshal(board.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range body.HandoffWarnings {
+		if row.Run == run.ID {
+			t.Fatalf("dismissed run still on the board: %s", board.Body.String())
+		}
+	}
+}
+
 // The board's handoff_warnings are per-run text. A report or verification run
 // is operator-side post-processing, so its warnings must not reach a harness
 // session's board: they would name a support run and leak its outcome

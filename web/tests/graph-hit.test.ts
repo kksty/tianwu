@@ -8,7 +8,7 @@
 // hit.ts and the reference drifted together, the test would prove nothing.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { GraphIndex, HOVERABLE_EDGE_KINDS } from '../src/graph/hit.ts'
+import { GraphIndex, HOVERABLE_EDGE_KINDS, ghostHitTest, pickAt } from '../src/graph/hit.ts'
 import type { GraphEdge, GraphNode } from '../src/graph/model.ts'
 import { edgeCurve, halfExtentX, pointOnCurve } from '../src/graph/render.ts'
 import { radiusOf } from '../src/graph/sim.ts'
@@ -317,12 +317,21 @@ test('edge filtering, ghosts and missing endpoints behave like the canvas', () =
   assert.equal(index.edgeAt(mid.x, mid.y, 12)?.id, 'e:intent')
   // Ghost centre is empty canvas: the ghost is not a hit target.
   assert.equal(index.nodeAt(0, 300, 6), null)
+  // …but it is a hit *blocker*, reported separately so the canvas can swallow
+  // the click instead of falling through to the edge that ends on it.
+  assert.equal(index.ghostAt(0, 300, 6)?.id, 'w:x')
+  assert.equal(index.pickAt(0, 300, 6, 12).ghost?.id, 'w:x')
+  assert.equal(index.pickAt(0, 300, 6, 12).edge, null)
   // Exact node centres resolve to that node.
   assert.equal(index.nodeAt(0, 0, 6)?.id, 'f:a')
   assert.equal(index.nodeAt(300, 0, 6)?.id, 'f:b')
+  // The ghost test only ever returns ghosts, and the node test never does.
+  assert.equal(ghostHitTest(nodes, 0, 0, 6, false), null)
   // Far outside everything.
   assert.equal(index.nodeAt(5000, 5000, 6), null)
+  assert.equal(index.ghostAt(5000, 5000, 6), null)
   assert.equal(index.edgeAt(5000, 5000, 12), null)
+  assert.deepEqual(index.pickAt(5000, 5000, 6, 12), { node: null, ghost: null, edge: null })
 })
 
 test('an empty graph is not a crash', () => {
@@ -330,4 +339,140 @@ test('an empty graph is not a crash', () => {
   assert.equal(index.nodeAt(0, 0, 6), null)
   assert.equal(index.edgeAt(0, 0, 12), null)
   assert.deepEqual(index.stats, { nodeCandidates: 0, edgeCandidates: 0, queries: 2 })
+})
+
+test('a ghost ring swallows the click: no node, no edge, no clear', () => {
+  // A running direction with no produced fact yet: the step points at a ghost
+  // ring and the intent edge is drawn up to the ring's boundary.
+  const step: GraphNode = {
+    id: 's:in_x',
+    type: 'step',
+    label: 'direction',
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    degree: 1,
+    w: 7,
+    h: 7,
+    depth: 1,
+  }
+  const ghost: GraphNode = {
+    id: 'w:in_x',
+    type: 'ghost',
+    label: 'direction',
+    status: 'running',
+    x: 240,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    degree: 1,
+    w: 9,
+    h: 9,
+    depth: 2,
+  }
+  const nodes = [step, ghost]
+  const edges: GraphEdge[] = [{ id: 'e:intent', source: step.id, target: ghost.id, kind: 'intent' }]
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const index = new GraphIndex(nodes, edges, { layered: false })
+  const pad = 6
+  const tol = 12
+  const r = radiusOf(ghost)
+
+  // The raw edge test alone would pin the direction's panel from the ghost —
+  // that is the behaviour this rule exists to stop.
+  assert.equal(index.edgeAt(ghost.x, ghost.y, tol)?.id, 'e:intent')
+
+  // Centre, ring and a corner of the drawn footprint: the pick is the ghost, not
+  // the edge, and the linear fallback agrees with the indexed path.
+  const points: Array<[number, number]> = [
+    [ghost.x, ghost.y],
+    [ghost.x - r, ghost.y],
+    [ghost.x, ghost.y + r],
+    [ghost.x + r, ghost.y - r],
+  ]
+  for (const [x, y] of points) {
+    assert.equal(index.nodeAt(x, y, pad), null)
+    assert.equal(index.ghostAt(x, y, pad)?.id, ghost.id)
+    const indexed = index.pickAt(x, y, pad, tol)
+    const linear = pickAt(nodes, edges, byId, x, y, pad, tol, false)
+    assert.equal(indexed.node, null)
+    assert.equal(indexed.ghost?.id, ghost.id)
+    assert.equal(indexed.edge, null)
+    assert.equal(linear.ghost?.id, indexed.ghost?.id)
+    assert.equal(linear.edge, null)
+  }
+
+  // The dead zone is bounded: outside ring+pad the intent edge is selectable
+  // again, so the ghost does not make the whole relation unclickable.
+  const justOutside = ghost.x - r - pad - 1
+  const picked = index.pickAt(justOutside, 0, pad, tol)
+  assert.equal(picked.ghost, null)
+  assert.equal(picked.node, null)
+  assert.equal(picked.edge?.id, 'e:intent')
+  assert.equal(pickAt(nodes, edges, byId, justOutside, 0, pad, tol, false).edge?.id, 'e:intent')
+
+  // Halfway along the curve is ordinary edge territory.
+  const mid = pointOnCurve(edgeCurve(step, ghost, false, 'intent'), 0.5)
+  assert.equal(index.pickAt(mid.x, mid.y, pad, tol).edge?.id, 'e:intent')
+})
+
+test('indexed pick and linear pick agree on a graph with ghosts', () => {
+  const rand = mulberry32(0x9012)
+  const nodes = makeNodes(200, rand)
+  // Ghosts are one per direction without a produced fact; some sit close to real
+  // nodes, which is where the node/ghost precedence has to stay exact.
+  for (let i = 0; i < 24; i++) {
+    const anchor = nodes[Math.floor(rand() * nodes.length)]
+    nodes.push({
+      id: `w:${i}`,
+      type: 'ghost',
+      label: `ghost ${i}`,
+      status: i % 2 === 0 ? 'running' : 'pending',
+      x: anchor.x + (rand() - 0.5) * 60,
+      y: anchor.y + (rand() - 0.5) * 60,
+      vx: 0,
+      vy: 0,
+      degree: 1,
+      w: 9,
+      h: 9,
+      depth: anchor.depth + 1,
+    })
+  }
+  const edges = makeEdges(nodes, 400, rand)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const ghosts = nodes.filter((n) => n.type === 'ghost')
+
+  for (const layered of [false, true]) {
+    const index = new GraphIndex(nodes, edges, { layered })
+    /** Indexed and linear must describe the same pick, point for point. */
+    const check = (x: number, y: number, pad: number) => {
+      const indexed = index.pickAt(x, y, pad, 12)
+      const linear = pickAt(nodes, edges, byId, x, y, pad, 12, layered)
+      assert.equal(indexed.node?.id ?? null, linear.node?.id ?? null, `node at ${x},${y} pad=${pad}`)
+      assert.equal(indexed.ghost?.id ?? null, linear.ghost?.id ?? null, `ghost at ${x},${y} pad=${pad}`)
+      assert.equal(indexed.edge?.id ?? null, linear.edge?.id ?? null, `edge at ${x},${y} pad=${pad}`)
+    }
+
+    for (let i = 0; i < 240; i++) {
+      for (const pad of [0, 6, 14]) check((rand() - 0.5) * 1200, (rand() - 0.5) * 1200, pad)
+    }
+
+    // A ghost's own footprint is where precedence matters: the ring must win over
+    // the intent edge, and the node test must still ignore it. On-centre and
+    // on-corner points are deterministic, so this coverage is guaranteed.
+    for (const ghost of ghosts) {
+      const r = radiusOf(ghost)
+      for (const [dx, dy] of [[0, 0], [r, 0], [-r, r], [r, -r]]) {
+        for (const pad of [0, 6]) {
+          // The point belongs to a ghost (possibly an overlapping one: the
+          // nearest ring wins, exactly like nodes), never to nodeAt.
+          assert.ok(index.ghostAt(ghost.x + dx, ghost.y + dy, pad))
+          assert.equal(ghostHitTest(nodes, ghost.x + dx, ghost.y + dy, pad, layered)?.id,
+            index.ghostAt(ghost.x + dx, ghost.y + dy, pad)?.id)
+          check(ghost.x + dx, ghost.y + dy, pad)
+        }
+      }
+    }
+  }
 })

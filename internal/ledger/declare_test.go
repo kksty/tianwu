@@ -402,9 +402,12 @@ func TestDeclaredIdentityAndObservationMetadata(t *testing.T) {
 	if first.Summary != "第二次" {
 		t.Fatalf("repeated identity did not supersede the earlier line: summary = %q", first.Summary)
 	}
-	joined := strings.Join(d.Warnings, "\n")
-	if !strings.Contains(joined, "后一行覆盖前一行") {
-		t.Fatalf("supersession was not reported: %v", d.Warnings)
+	joined := strings.Join(d.Infos, "\n")
+	if !strings.Contains(joined, "同 ID") || !strings.Contains(joined, "obs-1") {
+		t.Fatalf("supersession was not reported as info: %v", d.Infos)
+	}
+	if len(d.Warnings) != 0 {
+		t.Fatalf("an expected in-batch correction became a warning: %v", d.Warnings)
 	}
 	if d.Facts[1].DeclarationID != "obs-2" || d.Facts[1].DeclarationID == first.DeclarationID {
 		t.Fatalf("two declarations with one title collapsed: %+v", d.Facts)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -156,6 +157,13 @@ type Declared struct {
 	// collected for the run row so the next turn can correct the path instead
 	// of the problem disappearing into a count (task-17).
 	Warnings []string
+	// Infos are non-problems worth surfacing without turning them into a
+	// warning: today, one aggregated line when the writer corrected the same
+	// observation by re-declaring its identity in one batch. The later line is
+	// authoritative (F8), so this is a note about which line won, not a defect
+	// to fix. Keeping it out of Warnings is what stops the status page from
+	// counting expected corrections as handoff failures.
+	Infos []string
 	// Consumed is where the next run should start reading this file.
 	Consumed int64
 }
@@ -279,6 +287,12 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 	// identity supersedes the earlier line in place instead of adding a second
 	// row (F8).
 	seen := map[string]int{}
+	// superseded counts how many later lines replaced an earlier one, per
+	// identity. The batch reports one aggregated info line instead of one
+	// warning per correction: a writer that revises an observation is following
+	// the documented contract, not creating a handoff problem.
+	superseded := map[string]int{}
+	supersededTotal := 0
 	r := bufio.NewReaderSize(f, 64<<10)
 	for {
 		line, n, complete, readErr := readHandoffLine(r)
@@ -395,9 +409,8 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		if idx, repeated := seen[identity]; repeated {
 			df.Offset = consumed - n
 			d.Facts[idx] = df
-			d.Warnings = append(d.Warnings, fmt.Sprintf(
-				"事实「%s」的声明身份 %q 在本批里出现了多次，后一行覆盖前一行（同一观察的更正）",
-				clipRunes(df.Title, 80), clipRunes(df.DeclarationID, 120)))
+			superseded[df.DeclarationID]++
+			supersededTotal++
 			if readErr == io.EOF {
 				break
 			}
@@ -409,6 +422,20 @@ func readDeclared(casesRoot, workDir string, start int64, final bool) (Declared,
 		if readErr == io.EOF {
 			break
 		}
+	}
+	if supersededTotal > 0 {
+		ids := make([]string, 0, len(superseded))
+		for id := range superseded {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		parts := make([]string, 0, len(ids))
+		for _, id := range ids {
+			parts = append(parts, fmt.Sprintf("%s×%d", clipRunes(id, 80), superseded[id]))
+		}
+		d.Infos = append(d.Infos, fmt.Sprintf(
+			"本批有 %d 条同 ID 声明被后一行覆盖（同一观察的更正，非错误）：%s",
+			supersededTotal, strings.Join(parts, "、")))
 	}
 	return d, nil
 }

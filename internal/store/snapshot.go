@@ -93,6 +93,7 @@ func detachRun(r model.Run) model.Run {
 		r.PremiseVersions = versions
 	}
 	r.Warnings = append([]string(nil), r.Warnings...)
+	r.Infos = append([]string(nil), r.Infos...)
 	if r.DeclarationStart != nil {
 		v := *r.DeclarationStart
 		r.DeclarationStart = &v

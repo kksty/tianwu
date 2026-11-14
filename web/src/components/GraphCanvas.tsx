@@ -11,7 +11,7 @@ import {
 } from '@/graph/sim'
 import { PILL_MAX_LINES, PILL_TEXT_W, fitText, halfExtentX, paint, wrapText, type Camera, type FocusTemperatures } from '@/graph/render'
 import { layoutBounds, openCamera, parseCamera, type NodeExtent } from '@/graph/camera'
-import { GraphIndex, edgeHitTest, nodeHitTest } from '@/graph/hit'
+import { GraphIndex, edgeHitTest, pickAt as pickLinear, type GraphPick } from '@/graph/hit'
 import {
   createFramePublisher,
   setHovered,
@@ -72,6 +72,9 @@ interface DragState {
   cx: number
   cy: number
   moved: boolean
+  /** The press landed on a ghost ring: a click there must do nothing at all,
+   *  not even clear the current selection. */
+  inert?: boolean
 }
 
 const NO_DRAG: DragState = { mode: null, sx: 0, sy: 0, cx: 0, cy: 0, moved: false }
@@ -122,9 +125,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // A coarse pointer / touch pointer widens the hit slop.
   const coarseRef = useRef(false)
   const lastPointerTypeRef = useRef('mouse')
-  // Last touch tap (for double-tap zoom, which mobile browsers may not deliver
-  // as a dblclick event).
-  const lastTapRef = useRef<{ at: number; x: number; y: number } | null>(null)
   // Pointer is over (or dragging) this node/edge id; published to the view-store.
   const hoverRef = useRef<string | null>(null)
   // Arrow-key focus node; drawn as a ring by the renderer, never a React state.
@@ -700,8 +700,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     }, 180)
   }
 
-  /** Explicit fit: toolbar button and double-click. The only code that scales
-   *  the camera to the canvas — data refreshes never call it. */
+  /** Explicit fit: the toolbar's 适配画布 button. The only code that scales the
+   *  camera to the canvas — data refreshes and double-clicks never call it: a
+   *  double-click must not move or resize the map under the operator. */
   function fit() {
     const sim = simRef.current
     const { w, h } = sizeRef.current
@@ -734,16 +735,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     cam.x = mx - ((mx - cam.x) / cam.k) * k
     cam.y = my - ((my - cam.y) / cam.k) * k
     cam.k = k
-  }
-
-  /** Zoom around a pointer position (wheel / double-tap). */
-  function zoomAt(clientX: number, clientY: number, factor: number) {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
-    applyZoom(camRef.current, clientX - rect.left, clientY - rect.top, factor)
-    paintOnce()
-    saveCameraSoon()
-    requestPublish()
   }
 
   useImperativeHandle(ref, () => ({
@@ -798,16 +789,27 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     return coarseRef.current || lastPointerTypeRef.current === 'touch' ? TOUCH_HIT_SCALE : 1
   }
 
-  function hitTest(clientX: number, clientY: number): GraphNode | null {
+  /** Screen-space edge tolerance in graph units at the current zoom. */
+  function edgeTolerance(): number {
+    return (HIT_EDGE_TOL_PX / Math.max(camRef.current.k, 0.4)) * hitScale()
+  }
+
+  /**
+   * What the pointer is on, in the order the map defines it: a node, then a
+   * ghost ring, then an edge. A ghost is a dead zone, not a miss — the intent
+   * edge is drawn up to the ring, so falling through to the edge would open the
+   * direction's panel from a ghost.
+   */
+  function pickAt(clientX: number, clientY: number): GraphPick {
     const sim = simRef.current
-    if (!sim) return null
+    if (!sim) return { node: null, ghost: null, edge: null }
     const p = toWorld(clientX, clientY)
     const pad = (HIT_PAD_PX / camRef.current.k) * hitScale()
     // While the layout is at rest the grid is valid; while it runs or a node is
     // dragged the positions move every frame, so scanning is cheaper than
     // rebuilding an index that would be stale by the next pointer sample.
-    if (isSettled()) return ensureIndex(sim).nodeAt(p.x, p.y, pad)
-    return nodeHitTest(sim.nodes, p.x, p.y, pad, sim.mode === 'layered')
+    if (isSettled()) return ensureIndex(sim).pickAt(p.x, p.y, pad, edgeTolerance())
+    return pickLinear(sim.nodes, sim.edges, indexOf(sim), p.x, p.y, pad, edgeTolerance(), sim.mode === 'layered')
   }
 
   /** Nearest selectable/hoverable edge, sampled on the same curve the renderer draws. */
@@ -815,9 +817,8 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const sim = simRef.current
     if (!sim) return null
     const p = toWorld(clientX, clientY)
-    const tol = (HIT_EDGE_TOL_PX / Math.max(camRef.current.k, 0.4)) * hitScale()
-    if (isSettled()) return ensureIndex(sim).edgeAt(p.x, p.y, tol)
-    return edgeHitTest(sim.edges, indexOf(sim), p.x, p.y, tol, sim.mode === 'layered')
+    if (isSettled()) return ensureIndex(sim).edgeAt(p.x, p.y, edgeTolerance())
+    return edgeHitTest(sim.edges, indexOf(sim), p.x, p.y, edgeTolerance(), sim.mode === 'layered')
   }
 
   function onWheel(e: React.WheelEvent) {
@@ -854,14 +855,14 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       }
       if (touchesRef.current.size > 2) return
     }
-    const node = hitTest(e.clientX, e.clientY)
+    const pick = pickAt(e.clientX, e.clientY)
     // The edge is the intent. Select it on press, not on release: a click on a
-    // thin curve is otherwise easy to lose to a one-pixel pointer drift.
-    if (!node) {
-      const edge = edgeAt(e.clientX, e.clientY)
-      if (edge?.intent) onSelect(edge.id === stateRef.current.selected ? null : edge.id)
-    }
-    if (node) {
+    // thin curve is otherwise easy to lose to a one-pixel pointer drift. A ghost
+    // ring is never an edge target: its press is inert (see `pickAt`). An edge
+    // without a direction (goal support) is readable on hover, not selectable.
+    if (pick.edge?.intent) onSelect(pick.edge.id === stateRef.current.selected ? null : pick.edge.id)
+    if (pick.node) {
+      const node = pick.node
       dragRef.current = {
         mode: 'node',
         id: node.id,
@@ -882,6 +883,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         cx: camRef.current.x,
         cy: camRef.current.y,
         moved: false,
+        // A ghost ring still pans like empty canvas, but releasing without a
+        // move must leave the map exactly as it was.
+        inert: Boolean(pick.ghost),
       }
     }
     paintOnce()
@@ -970,11 +974,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
 
   /** Hit-test the last position of a frame and publish the hover only on change. */
   function applyHover(clientX: number, clientY: number) {
-    const node = hitTest(clientX, clientY)
-    const edge = node ? null : edgeAt(clientX, clientY)
+    const pick = pickAt(clientX, clientY)
     // A relation edge without an intent (goal support) is still worth inspecting:
     // the inspector names the relation even when there is no direction panel.
-    const id = node ? node.id : edge ? edge.id : null
+    // A ghost ring is decorative: hovering it highlights nothing.
+    const id = pick.node?.id ?? pick.edge?.id ?? null
     if (id === hoverRef.current) return
     hoverRef.current = id
     // The inspector/minimap subscribe here; GraphView itself does not re-render.
@@ -1011,21 +1015,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     }
     const d = dragRef.current
     dragRef.current = NO_DRAG
-    // Double-tap on empty canvas zooms in. Pointer events give no dblclick on
-    // several touch browsers, so the gesture is detected from the taps
-    // themselves; onDoubleClick ignores touch pointers for the same reason.
-    if (touch && d.mode === 'pan' && !d.moved) {
-      const now = performance.now()
-      const last = lastTapRef.current
-      lastTapRef.current = { at: now, x: e.clientX, y: e.clientY }
-      if (last && now - last.at < 320 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24) {
-        lastTapRef.current = null
-        zoomAt(e.clientX, e.clientY, 1.6)
-        return
-      }
-    } else if (touch) {
-      lastTapRef.current = null
-    }
     // A pan changes the camera; a click or node drag does not. Persist on the
     // released gesture instead of on every pointermove.
     if (d.mode === 'pan' && d.moved) {
@@ -1034,17 +1023,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     }
     if (d.mode === 'pan' && !d.moved) {
       // Edge selection already happened on press; a click on empty canvas only
-      // clears the current selection.
-      if (!edgeAt(e.clientX, e.clientY)) onSelect(null)
+      // clears the current selection. A press that started on a ghost ring is
+      // inert: clicking the ghost must not even close what the operator opened.
+      if (!d.inert && !edgeAt(e.clientX, e.clientY)) onSelect(null)
     }
     if (d.mode === 'node' && d.id && !d.moved) {
-      const sim = simRef.current
-      const node = sim ? indexOf(sim).get(d.id) : undefined
-      if (node?.type === 'ghost') {
-        const edge = sim?.edges.find((edge) => edge.target === node.id)
-        onSelect(edge?.intent ? edge.id : null)
-        return
-      }
       onSelect(d.id === stateRef.current.selected ? null : d.id)
     }
     paintOnce()
@@ -1080,19 +1063,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
       setHovered(null)
       paintOnce()
     }
-  }
-
-  function onDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    // Touch double-tap is detected in pointerup (many mobile browsers never fire
-    // dblclick for it), so a synthetic dblclick after a touch must not zoom twice.
-    if (lastPointerTypeRef.current === 'touch') return
-    // Touch/coarse without a wheel: double-tap zooms around the tap.
-    if (coarseRef.current) {
-      zoomAt(e.clientX, e.clientY, 1.6)
-      return
-    }
-    // Mouse keeps the existing "fit the whole map" action.
-    fit()
   }
 
   /** Keyboard order: depth, then y, then x, then id — deterministic and stable. */
@@ -1177,7 +1147,6 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onPointerLeave={onPointerLeave}
-        onDoubleClick={onDoubleClick}
         onKeyDown={onKeyDown}
         onBlur={onBlur}
       />

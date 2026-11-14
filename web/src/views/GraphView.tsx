@@ -50,6 +50,7 @@ import {
 import { ConsoleRail } from '@/components/ConsoleRail'
 import { AppendGoalDialog } from '@/components/AppendGoalDialog'
 import { CreateIntentDialog } from '@/components/CreateIntentDialog'
+import { SealGoalDialog, type SealGoalRef } from '@/components/SealGoalDialog'
 import { ProjectChromeContext } from '@/components/Page'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { SideNav } from '@/components/SideNav'
@@ -365,6 +366,10 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   // internal/api/goal_continue.go. goalRefreshSeq lets the always-mounted
   // overview reload its own goals poll after a successful append.
   const [appendGoalOpen, setAppendGoalOpen] = useState(false)
+  // The pause banner's "认可达成并收口" opens the same seal dialog the overview
+  // goal card uses. It is separate from "append a new goal": sealing the open
+  // goal does not create a second one and does not resume the project.
+  const [sealGoal, setSealGoal] = useState<SealGoalRef | null>(null)
   const [goalRefreshSeq, setGoalRefreshSeq] = useState(0)
   const [actionError, setActionError] = useState('')
   // The runs poll lives in GraphPanel (it only feeds the map model); its error
@@ -501,7 +506,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
 
   /** The whole-project switch: stop deciding *and* stop the executors. The
    *  canceled directions go back to pending, so resuming re-dispatches them. */
-  async function toggleProject() {
+  async function toggleProject(resumeGoalID?: string) {
     if (!board) return
     const projectStopped = Boolean(board.project_paused || board.decider.paused)
     if (!projectStopped) {
@@ -517,7 +522,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
     }
     setPausing(true)
     try {
-      if (projectStopped) await api.resumeProject()
+      if (projectStopped) await api.resumeProject(resumeGoalID)
       else await api.pauseProject()
       refresh()
     } catch (e) {
@@ -593,8 +598,15 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const finished = pauseReason.includes('目标已完成')
   // Who stopped the project is a machine code, not prose (project_pause_kind):
   // a commander stop must stay visible in the banner and still be undone only by
-  // the operator's explicit 「继续项目」.
-  const commanderStoodBy = paused && board?.project_pause_kind === 'commander_standby'
+  // the operator's explicit 「继续项目」. "Open goal + commander stop" is the
+  // ambiguous state the banner has to explain: the commander stopped, but the
+  // ledger has not stamped the goal, so the terminal is still unmet. Once every
+  // goal is met the banner says 已收口 instead of repeating the stop request.
+  const currentGoal = board?.goals.open?.[0]
+  const goalOpen = (board?.goals.total ?? 0) > (board?.goals.met ?? 0)
+  const commanderStoodBy = paused && board?.project_pause_kind === 'commander_standby' && goalOpen
+  const commanderClosed =
+    paused && board?.project_pause_kind === 'commander_standby' && !goalOpen && (board?.goals.total ?? 0) > 0
 
   // The board counters are a quiet meta line, not chips: label at 11px ink-3,
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
@@ -636,7 +648,12 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
     <>
       {commanderStoodBy && (
         <Badge size="sm" variant="warning" title={pauseReason} className="shrink-0">
-          指挥官请求停止
+          指挥官请求停止 · 目标仍未达成
+        </Badge>
+      )}
+      {commanderClosed && (
+        <Badge size="sm" variant="success" title={pauseReason} className="shrink-0">
+          已收口
         </Badge>
       )}
       {finished && (
@@ -649,18 +666,34 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           size="sm"
           variant="outline"
           className="gap-1.5"
-          onClick={toggleProject}
+          onClick={() => toggleProject(commanderStoodBy ? currentGoal?.id : undefined)}
           disabled={pausing}
           title={
-            paused
-              ? pauseReason
-                ? `${pauseReason}；点「继续项目」恢复决策`
-                : '继续项目：指挥官恢复决策，并重新派发待办方向'
-              : '暂停项目：停止指挥官，并取消所有正在跑的 run'
+            commanderStoodBy
+              ? `恢复项目并唤醒指挥官，继续当前目标「${currentGoal?.statement ?? ''}」，不新增目标`
+              : paused
+                ? pauseReason
+                  ? `${pauseReason}；点「继续项目」恢复决策`
+                  : '继续项目：指挥官恢复决策，并重新派发待办方向'
+                : '暂停项目：停止指挥官，并取消所有正在跑的 run'
           }
         >
           {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-          <span className="whitespace-nowrap">{paused ? '继续项目' : '暂停项目'}</span>
+          <span className="whitespace-nowrap">
+            {paused ? (commanderStoodBy ? '继续当前目标' : '继续项目') : '暂停项目'}
+          </span>
+        </Button>
+      )}
+      {commanderStoodBy && currentGoal && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={() => setSealGoal(currentGoal)}
+          title="用一条真实证据把当前目标盖章为已达成；项目保持暂停，不会自动恢复派发"
+        >
+          <Target className="h-4 w-4" />
+          <span className="whitespace-nowrap">认可达成并收口</span>
         </Button>
       )}
       {/* Completion stand-by / manual pause: append a NEW goal and resume through
@@ -688,7 +721,7 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
           !board?.decider.enabled
             ? '未配置模型'
             : paused
-              ? '指挥官已暂停：先点「继续项目」'
+              ? `指挥官已暂停：先点「${commanderStoodBy ? '继续当前目标' : '继续项目'}」`
               : '让指挥官立刻跑一轮'
         }
       >
@@ -818,6 +851,18 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
         onCompleted={() => {
           // The goal exists now; the board (pause state) and the overview's own
           // goals poll must both re-read, so "追加目标并继续" shows the result.
+          setGoalRefreshSeq((n) => n + 1)
+          refresh()
+        }}
+      />
+      <SealGoalDialog
+        goal={sealGoal}
+        open={!!sealGoal}
+        onOpenChange={(open) => { if (!open) setSealGoal(null) }}
+        onSealed={() => {
+          // The board now says the goal is met; the banner switches to 已收口.
+          // The project deliberately stays paused: sealing is not resuming.
+          setSealGoal(null)
           setGoalRefreshSeq((n) => n + 1)
           refresh()
         }}

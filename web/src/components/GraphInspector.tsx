@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@cyber/ui'
+import { DOCK_DEFAULT_WIDTH } from '@/components/graph/dock-width'
 import { edgeKindLabel, type GraphEdge, type GraphNode } from '@/graph/model'
 import { fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
 import type { RunPulse } from '@/lib/types'
@@ -138,6 +139,7 @@ export function GraphInspector({
   pulse,
   pinned = false,
   model,
+  width = DOCK_DEFAULT_WIDTH,
 }: {
   node?: GraphNode | null
   edge?: GraphEdge | null
@@ -145,6 +147,8 @@ export function GraphInspector({
   pinned?: boolean
   /** Model resolved from the step node when only an edge is hovered. */
   model?: string
+  /** Shared width of the graph's right-hand overlays (see dock-width.ts). */
+  width?: number
 }) {
   const fact = node?.meta?.fact
   const goal = node?.meta?.goal
@@ -185,7 +189,10 @@ export function GraphInspector({
     // body cannot be scrolled by the wheel. It must therefore grow with its
     // content: a max-height clamp here would silently cut off the warning and
     // receipt rows on short viewports.
-    <div className="pointer-events-none absolute right-3 top-[56px] flex w-[360px] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur">
+    <div
+      className="pointer-events-none absolute right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      style={{ width }}
+    >
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-3 py-2">
         <Badge size="sm" variant={badge.variant}>
           {badge.label}

@@ -474,7 +474,7 @@ export function Overview({
                   <Callout tone="warning" icon={<CircleAlert className="h-4 w-4" />}>
                     <div className="space-y-1">
                       <div className="text-[12.5px] font-medium text-ink">
-                        最近 <span className="font-mono tw-nums">{board.handoff_warnings!.length}</span> 个 run 有交接告警（非致命，已带入下一轮提示词）
+                        最近 <span className="font-mono tw-nums">{board.handoff_warnings!.length}</span> 个历史 run 有非致命告警（已带入下一轮提示词）
                       </div>
                       {board.handoff_warnings!.slice(0, 3).map((w) => (
                         <div key={w.run} className="tw-break text-[11px] leading-relaxed text-ink-2">

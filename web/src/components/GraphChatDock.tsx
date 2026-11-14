@@ -6,6 +6,7 @@ import { fmtTime } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
 import { participantName } from '@/lib/ioa'
 import type { Message } from '@/lib/types'
+import { DockResizeHandle, type DockSize } from './graph/DockResize'
 
 /**
  * The 图谱 page's right dock: the operator talks to the commander / all
@@ -16,12 +17,15 @@ import type { Message } from '@/lib/types'
 export function GraphChatDock({
   paused,
   runningExecutors,
+  dock,
   onSent,
   onClose,
   onOpenConversation,
 }: {
   paused: boolean
   runningExecutors: number
+  /** Shared width + drag glue for the graph's right-hand overlays. */
+  dock: DockSize
   /** Refresh the board after a send (the dock refreshes its own feed). */
   onSent: () => void
   onClose: () => void
@@ -37,8 +41,10 @@ export function GraphChatDock({
   return (
     <div
       data-graph-chat
-      className="absolute bottom-12 right-3 top-[56px] flex w-[340px] flex-col overflow-hidden rounded-xl border border-hairline bg-card shadow-elevated"
+      className="absolute bottom-12 right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card shadow-elevated"
+      style={{ width: dock.width }}
     >
+      <DockResizeHandle dock={dock} />
       <div className="flex shrink-0 items-center gap-2 border-b border-hairline bg-surface-1/60 px-4 py-2.5">
         <MessageSquare className="h-4 w-4 shrink-0 text-ink-3" />
         <div className="min-w-0">
@@ -97,6 +103,8 @@ export function GraphChatDock({
         <ChatComposer
           paused={paused}
           runningExecutors={runningExecutors}
+          onManageInstructions={onOpenConversation}
+          manageLabel="在通信页管理"
           onSent={() => {
             messages.reload()
             onSent()

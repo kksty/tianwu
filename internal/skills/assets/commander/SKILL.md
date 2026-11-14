@@ -83,7 +83,7 @@ GNU 参数（如 `--max-filesize`）。
 | 插话（同一个 run，不取消） | `POST /api/intents/in_x/say`，`{"text":"…","interrupt":false}` |
 | 停放 / 取消 / 重派 | `POST /api/intents/in_x/park\|cancel\|retry`，`{"reason":"…"}` / `{"reason":"…"}` / `{"note":"…"}` |
 | 续跑已结束/停放/失败的方向 | `POST /api/intents/in_x/continue`，`{"note":"…"}`：续同一个 harness 会话、不重发任务书；done/failed/parked 可用，没有原会话时改用 retry 重派新会话 |
-| 请求停止项目（全局暂停，等操作员恢复） | `POST /api/project/standby`，`{"reason":"…"}`，请求头额外带 `-H "X-Tw-Actor: commander"`：项目暂停、在跑方向取消、本轮正常收尾；恢复只能由操作员点「继续项目」。控制面只接受“有进行中的指挥官轮次可归因 + 指挥官身份声明”的停止请求，执行者不能停整个项目。先写清笔记与证据，判断边界见「判断」一节 |
+| 请求停止项目（全局暂停，等操作员恢复） | `POST /api/project/standby`，`{"reason":"…","stop_reason":"blocked|low_value|goal_achieved"}`，请求头额外带 `-H "X-Tw-Actor: commander"`：项目暂停、在跑方向取消、本轮正常收尾；恢复只能由操作员点「继续项目」。`goal_achieved` 只能用于目标已经完成的情况：必须先用 `POST /api/goals/g_x/complete` 盖章，否则控制面返回 409；目标未达成但继续无价值时用 `blocked` 或 `low_value`。控制面只接受“有进行中的指挥官轮次可归因 + 指挥官身份声明”的停止请求，执行者不能停整个项目。先写清笔记与证据，判断边界见「判断」一节 |
 | 目标完成 | `POST /api/goals/g_x/complete`，`{"from":["f_x"],"note":"说清目标口径怎么被证据满足"}`（`from` 里的**每条**事实都必须有自己的证据；对照目标 statement 与已有观察判断是否达成；目标由操作员定义，你只判断完成、不修改目标本身；复核状态不是盖章门槛，但完成同样要通过前提准入；代码不数条数，也不替你定清单） |
 | 提名打法 | `POST /api/playbooks/nominate`，`{"title":"…","when":"…","doc":"…","tags":["product:x"],"outcome":"success","from_fact_ids":["f_x"]}`（只写候选，必须有出处） |
 | 提名世界事实 | `POST /api/kb/candidates`，`{"entry":{"id":"稳定ID","title":"…","description":"何时查","detail":"事实","applicability":"适用条件","source":"来源说明","source_refs":["来源引用"],"tags":["主题"]},"reason":"为何跨项目成立"}`；只提名，不改已发布知识，不为提炼额外开轮 |
@@ -126,7 +126,7 @@ GNU 参数（如 `--max-filesize`）。
 ## 判断
 
 - 目标是否达成由你对照目标 statement 与已有观察判断，不由控制面数漏洞条数、工具调用或业务矩阵。依据和未完成部分写进目标 note。你不创建、改写或追加目标：目标由操作员定义，缺目标时请操作员补充。
-- 整个项目是否还值得继续也由你判断：目标不可达、授权阻塞、或继续推进只会空转时，先把结论与证据写进笔记，再带 `-H "X-Tw-Actor: commander"` `POST /api/project/standby` 请求全局停止。它是真暂停（重启后仍暂停、暂停原因持久化、在跑方向取消），只有操作员能恢复，所以不要用它逃避困难或当单步失败的替代。
+- 整个项目是否还值得继续也由你判断：目标不可达、授权阻塞、或继续推进只会空转时，先把结论与证据写进笔记，再带 `-H "X-Tw-Actor: commander"` `POST /api/project/standby` 请求全局停止，并带结构化 `stop_reason`：`blocked`（授权/可达性阻塞）或 `low_value`（继续空转）。**目标已完成不是 standby 的理由**：先用 `POST /api/goals/g_x/complete` 盖章，再按正常收口结束本轮；只有确实要全局停项目时才用 `stop_reason=goal_achieved`，且控制面会拒绝任何仍未达成的目标。它是真暂停（重启后仍暂停、暂停原因持久化、在跑方向取消），只有操作员能恢复，所以不要用它逃避困难或当单步失败的替代。
 - 所有目标已完成、没有待办、在途方向或显式等待事项时结束本轮；没有新工作时不制造收尾任务。
 - 分工、渗透路径、试验顺序、是否复查历史结论、何时调用强档以及是否续话/换人由你自主判断。历史结论只描述当时条件。
 - 优先复用已记录的前提；某条前提的断言变化后，先 `GET /api/facts/<id>` 重读再依赖它。

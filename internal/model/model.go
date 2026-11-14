@@ -870,7 +870,19 @@ type Run struct {
 	// capped, and old rows simply have none (omitempty). They do not replace
 	// the run event log: each one is also a `warning` event there.
 	Warnings []string `json:"warnings,omitempty"`
-	Tokens   int      `json:"tokens,omitempty"`
+	// Infos are non-fatal handoff notes the control plane noticed while settling
+	// the run and deliberately does not count as warnings: today, a declaration
+	// the writer corrected by re-declaring the same identity in the same batch.
+	// They are still shown on the run, but they neither enter the board's
+	// handoff_warnings nor the next round's "previous handoff problems" section.
+	Infos []string `json:"infos,omitempty"`
+	// WarningsDismissed records the operator's "ignore" on a finished run's
+	// non-fatal handoff warnings. The rows stay in the ledger and the run detail
+	// can still show them; the board's handoff_warnings and the status-page count
+	// skip them. A dismissed row is not rewritten: the original diagnostics
+	// remain auditable.
+	WarningsDismissed bool `json:"warnings_dismissed,omitempty"`
+	Tokens            int  `json:"tokens,omitempty"`
 	// ContextTokens is the model's context size after the last call, touched in
 	// memory while the run is live and written when it settles. ContextWindow
 	// is the budget it is measured against, captured when the run starts.

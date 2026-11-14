@@ -278,6 +278,12 @@ type Server struct {
 	// next to the boolean, and a boot attach restores it, so a restart keeps
 	// saying who stopped the project instead of collapsing to "operator".
 	pauseCause string
+	// scopeMu guards resumeScope. The operator's "continue current goal" resume
+	// attaches the named goal to exactly one commander round (StartCommander
+	// consumes it), so the round continues that goal without a persistent
+	// instruction or dialogue. A later generic resume never inherits it.
+	scopeMu     sync.Mutex
+	resumeScope *resumeScope
 	// persistPaused writes the manifest's paused flag. nil means "write the real
 	// project manifest"; a test injects a failure to prove that a durable write
 	// failure leaves the runtime paused in agreement with the manifest instead of
@@ -759,6 +765,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/runs/{id}/events", s.runEvents)
 	mux.HandleFunc("GET /api/runs/{id}/context", s.runContext)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", s.cancelRun)
+	mux.HandleFunc("POST /api/runs/{id}/warnings/dismiss", s.dismissRunWarnings)
 	mux.HandleFunc("GET /api/board", s.getBoard)
 	mux.HandleFunc("GET /api/tools", s.listTools)
 	mux.HandleFunc("GET /api/tools/runtime", s.listRuntimeTools)
@@ -3720,6 +3727,40 @@ func supportPurpose(purpose string) bool {
 	return purpose == "report" || purpose == "verifier"
 }
 
+// dismissRunWarnings is the operator's "ignore" for a finished direction's
+// non-fatal handoff diagnostics. It is not a deletion: the rows stay on the run
+// and the run detail can still show them; the status-page count and the board's
+// handoff_warnings stop including this run. A failed or still-running direction
+// is refused: its warnings are still the next attempt's hint.
+func (s *Server) dismissRunWarnings(w http.ResponseWriter, r *http.Request) {
+	if harnessSession(r) {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	id := r.PathValue("id")
+	run, ok := s.Store.GetRun(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if run.IntentID == "" {
+		writeErr(w, http.StatusConflict, "只对意图 run 提供交接告警忽略")
+		return
+	}
+	if in, ok := s.Store.GetIntent(run.IntentID); ok && in.Status != model.StatusDone {
+		writeErr(w, http.StatusConflict, "只对已结束（done）方向的交接告警提供忽略")
+		return
+	}
+	updated, err := s.Store.UpdateRun(id, func(r *model.Run) {
+		r.WarningsDismissed = true
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 	runs := s.Store.Runs()
 	// The agent surface is the battlefield: a report or verification run is the
@@ -3773,7 +3814,7 @@ func recentHandoffWarnings(st *store.Store, limit int, hideSupport bool) []board
 		if hideSupport && supportPurpose(r.Purpose) {
 			continue
 		}
-		if len(r.Warnings) == 0 {
+		if len(r.Warnings) == 0 || r.WarningsDismissed {
 			continue
 		}
 		out = append(out, boardRunWarnings{Run: r.ID, IntentID: r.IntentID, Warnings: r.Warnings})
@@ -3992,9 +4033,17 @@ func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Reason string `json:"reason"`
+		Reason     string `json:"reason"`
+		StopReason string `json:"stop_reason"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	req.StopReason = strings.ToLower(strings.TrimSpace(req.StopReason))
+	switch req.StopReason {
+	case "", stopReasonGoalAchieved, stopReasonBlocked, stopReasonLowValue:
+	default:
+		writeErr(w, http.StatusBadRequest, "stop_reason 只能是 goal_achieved / blocked / low_value")
+		return
+	}
 	detail := clipRunes(req.Reason, 300)
 	reason := "指挥官请求停止项目"
 	if detail != "" {
@@ -4023,6 +4072,28 @@ func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "没有进行中的指挥官轮次：全局停止只能由发起请求的那一轮认定")
 		return
 	}
+	// A claim of "goal achieved" is checked against the ledger, not the reason
+	// prose. The commander must close the goal first; otherwise the project would
+	// park with a "done" note and an unmet goal, which is exactly the ambiguous
+	// state the operator then has to reconcile by hand.
+	if req.StopReason == stopReasonGoalAchieved {
+		if s.Store == nil {
+			writeErr(w, http.StatusConflict, "这个项目没有账本：不能用 goal_achieved")
+			return
+		}
+		goals := s.Store.Goals()
+		if len(goals) == 0 {
+			writeErr(w, http.StatusConflict, "项目没有目标：不能用 goal_achieved，请用 blocked 或 low_value")
+			return
+		}
+		for _, g := range goals {
+			if !g.Met {
+				writeErr(w, http.StatusConflict,
+					"目标 "+g.ID+" 仍未达成：先用 POST /api/goals/"+g.ID+"/complete 盖章，再请求停止；或用 blocked/low_value")
+				return
+			}
+		}
+	}
 	// The structured cause is recorded before the gate flips, like projectPause:
 	// a reader that sees paused=true must never have to wait for the cause.
 	s.pauseCause = pauseCauseCommander
@@ -4034,13 +4105,20 @@ func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
 		s.Decider.StandbyFor(reason)
 	}
 	canceled := s.CancelProjectWorkExcept(model.CancelCausePause, reason, skip)
-	s.recordAction("standby", "", reason)
+	action := reason
+	if req.StopReason != "" {
+		action += "（stop_reason=" + req.StopReason + "）"
+	}
+	s.recordAction("standby", "", action)
 	if err := s.setProjectPausedKind(true, pauseKindCommanderStandby); err != nil {
 		writeErr(w, http.StatusInternalServerError, "项目已进入停止状态，但无法保存暂停："+err.Error())
 		return
 	}
 	log.Printf("指挥官请求停止项目：%s（跳过本轮 run %s，取消 %d 个在跑 run）", detail, skip, canceled)
 	out := map[string]any{"paused": true, "canceled": canceled, "reason": reason}
+	if req.StopReason != "" {
+		out["stop_reason"] = req.StopReason
+	}
 	if s.Decider != nil {
 		out["decider"] = s.Decider.Status()
 	}
@@ -4137,11 +4215,47 @@ func (s *Server) resumeProjectRuntimeLocked() {
 // projectResume re-arms the whole project after projectPause. It is explicit:
 // nothing resumes the loop automatically.
 func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		GoalID string `json:"goal_id"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	req.GoalID = strings.TrimSpace(req.GoalID)
+
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
+	var scope *resumeScope
+	if req.GoalID != "" {
+		if s.Store == nil {
+			writeErr(w, http.StatusBadRequest, "这个项目没有账本，不能按目标继续")
+			return
+		}
+		found := false
+		for _, g := range s.Store.Goals() {
+			if g.ID != req.GoalID {
+				continue
+			}
+			found = true
+			if g.Met {
+				writeErr(w, http.StatusConflict, "目标已达成：要继续请在同一个项目里追加新目标")
+				return
+			}
+			scope = &resumeScope{GoalID: g.ID, Statement: g.Statement}
+			break
+		}
+		if !found {
+			writeErr(w, http.StatusBadRequest, "没有这个目标："+req.GoalID)
+			return
+		}
+	}
 	if err := s.setProjectPausedKind(false, ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "无法保存继续状态，项目保持暂停："+err.Error())
 		return
+	}
+	// Attach the named open goal to the next commander round only after the
+	// durable resume succeeded: a failed manifest write must leave both the
+	// project and the scope untouched.
+	if scope != nil {
+		s.setResumeScope(*scope)
 	}
 	s.resumeProjectRuntimeLocked()
 	if s.Decider != nil {
@@ -4151,6 +4265,9 @@ func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 	// scheduler was gated while paused, so it must be kicked explicitly.
 	go s.pump()
 	out := map[string]any{"paused": false}
+	if scope != nil {
+		out["scope_goal_id"] = scope.GoalID
+	}
 	if s.Decider != nil {
 		out["decider"] = s.Decider.Status()
 	}

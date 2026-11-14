@@ -100,10 +100,29 @@ test('switching graph nodes retires the previous fact detail while the next requ
   api.fact = async (id: string) => id === 'a'
     ? {fact: fact(id), evidence: [{id: 'e_a', name: 'proof-for-a', uri: 'a.txt'}], reviews: []}
     : new Promise(() => {})
-  const props = {facts: [], runs: [], onSelectFact() {}, onClose() {}, onChanged() {}, childRefresh: 0, onChildIntent() {}}
+  const props = {
+    facts: [], runs: [], onSelectFact() {}, onClose() {}, onChanged() {}, childRefresh: 0, onChildIntent() {},
+    // The panel reads its width from the graph page's shared dock size.
+    dock: {width: 360, min: 300, max: 760, resizing: false, onResizeStart() {}, onResizeKey() {}},
+  }
   const node = (id: string) => ({id: `f:${id}`, type: 'fact', label: id, meta: {fact: fact(id)}})
   await act(async () => { renderer = create(React.createElement(NodePanel, {...props, node: node('a')})) })
   assert.ok(JSON.stringify(renderer!.toJSON()).includes('proof-for-a'))
   await act(async () => { renderer!.update(React.createElement(NodePanel, {...props, node: node('b')})) })
   assert.ok(!JSON.stringify(renderer!.toJSON()).includes('proof-for-a'), 'fact A evidence was displayed under fact B')
+})
+
+test('the node panel renders at the shared dock width and exposes its resize handle', async () => {
+  const fact = {id: 'a', title: 'a', kind: 'note', status: 'unverified', confidence: 'observed', created_at: ''}
+  api.fact = async () => ({fact, evidence: [], reviews: []})
+  const dock = {width: 520, min: 300, max: 760, resizing: false, onResizeStart() {}, onResizeKey() {}}
+  const props = {
+    facts: [], runs: [], dock, onSelectFact() {}, onClose() {}, onChanged() {}, childRefresh: 0, onChildIntent() {},
+  }
+  const node = {id: 'f:a', type: 'fact', label: 'a', meta: {fact}}
+  await act(async () => { renderer = create(React.createElement(NodePanel, {...props, node})) })
+  const handle = renderer!.root.findByProps({role: 'separator'})
+  assert.equal(handle.props['aria-orientation'], 'vertical')
+  assert.equal(handle.props['aria-valuenow'], 520)
+  assert.ok(JSON.stringify(renderer!.toJSON()).includes('"width":520'), 'the panel did not take the shared width')
 })

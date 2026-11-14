@@ -267,6 +267,17 @@ func (s *Server) StartCommander(ctx context.Context, prompt string, resume bool)
 		})
 		return executor.Result{}, nil, instructionErr
 	}
+	// The operator's "continue current goal" action attaches one open goal to
+	// exactly this round. It is deliberately a prompt section, not a permanent
+	// instruction: the operator asked for this goal now, and the next ordinary
+	// round must not inherit the scope.
+	if sc := s.consumeResumeScope(); sc != nil {
+		scopeSection := fmt.Sprintf(
+			"## 本轮继续的目标\n操作员点了「继续当前目标」：%s（%s）。这个目标仍未达成。本轮在同一个目标下继续推进；不要调用 POST /api/goals/{id}/complete，也不要再次请求 POST /api/project/standby，除非操作员明确说完成。\n\n",
+			sc.Statement, sc.GoalID)
+		prompt = insertBeforePromptSection(prompt, scopeSection, "## 授权边界（当前口径）", "## board\n")
+		s.NoteInjected(run.ID, "resume_goal", sc.GoalID, len(scopeSection), "resume_goal")
+	}
 	section := instructionSection(instructions, run.ID)
 	section += "\n本轮前提政策：" + premisePolicy + "。是否可派发及缺少的当前证明，按 GET /api/intents/{id}/readiness 核对；候选不是已成立前提。\n"
 	// The instruction set is frozen before the turn and placed before the

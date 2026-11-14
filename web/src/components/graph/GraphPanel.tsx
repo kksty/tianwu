@@ -33,6 +33,7 @@ import { GraphLegend } from './GraphLegend'
 import { GraphListView } from './GraphListView'
 import { GraphMinimap } from './GraphMinimap'
 import { GraphToolbar } from './GraphToolbar'
+import { useDockSize } from './DockResize'
 import { defaultGraphFilters, useGraphModel, type GraphFiltersState } from './use-graph-model'
 import { useFocusLayer } from './use-focus-layer'
 
@@ -77,6 +78,10 @@ export function GraphPanel({
   onError,
 }: GraphPanelProps) {
   const canvas = useRef<GraphControls | null>(null)
+  // The right side of the map (pinned node panel, 下发 dock, hover card) shares
+  // one width; the operator sets it by dragging the panel's left edge. It lives
+  // here, above all three, because they take turns occupying the same corner.
+  const dock = useDockSize()
   // The runs poll is the only source of per-direction warnings, the resolved
   // profile and the model each direction actually ran on. It stops with the
   // page (this component unmounts when the rail moves to another view).
@@ -571,6 +576,7 @@ export function GraphPanel({
             node={node}
             facts={graph.data?.facts ?? []}
             runs={runs.data ?? []}
+            dock={dock}
             onSelectFact={(id) => {
               if (!model.byId.get(`f:${id}`)?.meta?.fact) void graph.focus(`fact:${id}`)
               onSelect(`f:${id}`)
@@ -588,13 +594,14 @@ export function GraphPanel({
           When a node is pinned the right side belongs to its full NodePanel, so
           hovering other nodes must not cover it with a second card. */}
       {!chatDock && !listView && !node && (
-        <GraphHoverInspector model={model} selected={selected} pulseFor={pulseFor} />
+        <GraphHoverInspector model={model} selected={selected} pulseFor={pulseFor} width={dock.width} />
       )}
 
       {chatDock && (
         <GraphChatDock
           paused={paused}
           runningExecutors={running}
+          dock={dock}
           onSent={refresh}
           onClose={() => setChatDock(false)}
           onOpenConversation={() => {

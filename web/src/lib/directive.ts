@@ -64,6 +64,13 @@ export interface DirectiveKeyState {
   key: string
 }
 
+/** A fresh idempotency key for one operator request (directive or instruction). */
+export function randomRequestKey(): string {
+  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) =>
+    n.toString(16).padStart(8, '0'),
+  ).join('')
+}
+
 /** Reuse the key for an unchanged directive so a transport retry cannot create
  *  a second row; regenerate as soon as content or choices change. */
 export function directiveKeyFor(

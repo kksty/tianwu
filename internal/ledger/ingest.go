@@ -47,9 +47,17 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	// unless every durable declaration write succeeded; admissions are idempotent.
 	consumedBefore := Consumed(workDir)
 	committed := true
+	// failures names every item that kept the batch from being committed. The
+	// run must not say only "not fully persisted": the operator needs the
+	// offending declaration/playbook/path to fix it (task-17).
+	var failures []string
+	fail := func(format string, args ...any) {
+		failures = append(failures, fmt.Sprintf(format, args...))
+	}
 	decl, err := ReadDeclaredSince(caseRoot, workDir)
 	if err != nil {
 		committed = false
+		fail("读交接文件失败：%v", err)
 		log.Printf("run %s：读交接文件失败（已落库的部分保留，下一轮会重读）：%v", runID, err)
 	}
 	if decl.Truncated {
@@ -83,6 +91,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	// resolve (out of bounds, gone) is exactly what the next round must correct,
 	// and the run row is where the operator looks (task-17).
 	warnings := append([]string(nil), decl.Warnings...)
+	infos := append([]string(nil), decl.Infos...)
 	for _, df := range facts {
 		for _, rel := range df.Evidence {
 			if _, ok := byRel[rel]; ok {
@@ -91,6 +100,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 			id, err := g.addEvidenceFor(runID, intentID, caseRoot, workDir, rel, df.From[rel])
 			if err != nil {
 				committed = false
+				fail("证据「%s」无法登记（事实「%s」）", clipRunes(rel, 120), clipRunes(df.Title, 80))
 				warnings = append(warnings, fmt.Sprintf(
 					"事实「%s」的证据「%s」无法登记：%v",
 					clipRunes(df.Title, 80), clipRunes(rel, 120), err))
@@ -103,8 +113,12 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	}
 
 	harvested, harvestWarnings := g.harvest(runID, intentID, caseRoot, workDir, since, byRel)
+	for _, w := range harvestWarnings {
+		fail("%s", w)
+	}
 	warnings = append(warnings, harvestWarnings...)
 	g.recordWarnings(runID, warnings)
+	g.recordInfos(runID, infos)
 
 	names := append(declaredNames, harvested...)
 
@@ -114,6 +128,7 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	warn := func(what string, err error) {
 		if err != nil {
 			committed = false
+			fail("%s：%v", what, err)
 			log.Printf("run %s：%s 失败：%v", runID, what, err)
 		}
 	}
@@ -182,7 +197,12 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 		valid := true
 		for _, id := range df.FromFactIDs {
 			if _, ok := g.Store.FactByID(id); !ok {
-				warn("经验来源 "+id, fmt.Errorf("fact not found"))
+				// This is the classic d_-vs-f_ mistake: a playbook cited the
+				// declaration identity instead of the ledger fact id. Name the
+				// playbook and the bad id instead of the old generic
+				// "experience source: fact not found" log line.
+				warn(fmt.Sprintf("打法「%s」的来源 %s 不是账本事实 ID（from_fact_ids 必须用 f_ 开头）",
+					clipRunes(df.Title, 80), clipRunes(id, 120)), fmt.Errorf("fact not found"))
 				valid = false
 			}
 		}
@@ -211,8 +231,14 @@ func (g *Ingestor) OnFinish(runID, intentID, caseRoot, workDir string, since tim
 	// tail for the next run instead of skipping it forever.
 	if committed {
 		warn("记录交接游标", CommitDeclared(workDir, decl.Consumed))
-	} else {
-		g.recordWarnings(runID, []string{fmt.Sprintf("交接尚未全部持久化，保留消费游标 %d；修复后将幂等重读本批声明", consumedBefore)})
+	}
+	if !committed {
+		detail := clipRunes(strings.Join(failures, "；"), 1800)
+		if detail == "" {
+			detail = "未知写入失败"
+		}
+		g.recordWarnings(runID, []string{fmt.Sprintf(
+			"交接未全部持久化：%s；保留消费游标 %d（修复后幂等重读本批声明）", detail, consumedBefore)})
 	}
 	// Playbooks count as handoff lines: a run that only wrote one still honoured
 	// the contract, and declared_facts is the only measure of that.
@@ -352,6 +378,24 @@ func (g *Ingestor) recordWarnings(runID string, warnings []string) {
 		r.Warnings = mergeWarnings(r.Warnings, warnings)
 	}); err != nil {
 		log.Printf("run %s：写交接告警失败：%v", runID, err)
+	}
+}
+
+// recordInfos writes non-problem handoff notes (today: expected in-batch
+// corrections) to the run row. They are kept separate from Warnings so the
+// status page's warning count and the next round's "previous handoff problems"
+// section stay about things that need fixing.
+func (g *Ingestor) recordInfos(runID string, infos []string) {
+	if g.Store == nil || len(infos) == 0 {
+		return
+	}
+	for _, info := range infos {
+		log.Printf("run %s：交接提示：%s", runID, info)
+	}
+	if _, err := g.Store.UpdateRun(runID, func(r *model.Run) {
+		r.Infos = mergeWarnings(r.Infos, infos)
+	}); err != nil {
+		log.Printf("run %s：写交接提示失败：%v", runID, err)
 	}
 }
 

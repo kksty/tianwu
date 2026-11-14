@@ -116,11 +116,27 @@ export function Runs({
   const [error, setError] = useState('')
   const [copied, setCopied] = useState('')
   const [canceling, setCanceling] = useState<string | null>(null)
+  const [dismissingWarnings, setDismissingWarnings] = useState('')
   const cancelLock = useRef(false)
   const [notice, setNotice] = useState('')
   const [logRefresh, setLogRefresh] = useState(0)
   const refreshing = runs.loading || runs.refreshing || intents.refreshing || participants.refreshing || facts.refreshing
   function refreshAll() { runs.reload(); intents.reload(); participants.reload(); facts.reload(); setLogRefresh(n => n + 1) }
+
+  /** Operator "ignore" for a finished run's non-fatal handoff warnings. The
+   *  rows stay in the ledger; the list/detail stop presenting them as an alarm. */
+  async function dismissWarnings(run: Run) {
+    setDismissingWarnings(run.id)
+    setError('')
+    try {
+      await api.dismissRunWarnings(run.id)
+      refreshAll()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDismissingWarnings('')
+    }
+  }
 
 
   async function copyBrief(path: string) {
@@ -382,7 +398,7 @@ export function Runs({
                         <span>{r.events} 事件</span>
                         <span>{r.declared_facts} 事实</span>
                         {r.tokens ? <span>{fmtInt(r.tokens)} tok</span> : null}
-                        {(r.warnings?.length ?? 0) > 0 && (
+                        {(r.warnings?.length ?? 0) > 0 && !r.warnings_dismissed && (
                           <span className="text-warning" title={r.warnings!.join('\n')}>
                             ⚠ {r.warnings!.length} 告警
                           </span>
@@ -540,7 +556,13 @@ export function Runs({
 
               <details key={current.id} className="shrink-0 border-b border-hairline bg-surface-2/20">
                 <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-ink-2 transition-colors hover:bg-surface-2/60">
-                  运行配置与证据 · {current.warnings?.length ?? 0} 条告警
+                  运行配置与证据
+                  {(current.warnings?.length ?? 0) > 0
+                    ? current.warnings_dismissed
+                      ? ' · 告警已忽略'
+                      : ` · ${current.warnings!.length} 条告警`
+                    : ''}
+                  {(current.infos?.length ?? 0) > 0 ? ` · ${current.infos!.length} 条提示` : ''}
                 </summary>
                 <div className="max-h-[38vh] space-y-2 overflow-y-auto px-3 py-2 text-[12px]">
                   <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
@@ -673,25 +695,55 @@ export function Runs({
                   {/* What this run was dispatched against, frozen: premise claim
                       versions and the context record versions it actually saw. */}
                   <RunEvidenceView run={current} facts={facts.data ?? []} onSelectFact={openFactInGraph} />
-                  {(current.warnings?.length ?? 0) > 0 && (
-                    <div className="space-y-1 rounded-md border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
-                      <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-warning">
-                        <TriangleAlert className="h-3.5 w-3.5" /> 告警（{current.warnings!.length}）
-                        <span className="font-normal text-ink-3">
-                          · 含 harness 原生 subagent 使用审计
-                        </span>
+                  {(current.warnings?.length ?? 0) > 0 &&
+                    (current.warnings_dismissed ? (
+                      <div className="rounded-md border border-hairline bg-surface-2/40 px-2.5 py-2 text-[11px] text-ink-3">
+                        交接告警已忽略（{current.warnings!.length} 条，原始记录仍保留在账本）
                       </div>
-                      {current.warnings!.map((w, i) => (
-                        <div key={i} className="tw-break text-[11px] leading-relaxed text-ink-2">
-                          {/subagent/i.test(w) && (
-                            <Badge size="sm" variant="warning" className="mr-1">
-                              原生 subagent
-                            </Badge>
+                    ) : (
+                      <div className="space-y-1 rounded-md border border-warning/25 bg-warning/[0.07] px-2.5 py-2">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium text-warning">
+                          <TriangleAlert className="h-3.5 w-3.5" /> 告警（{current.warnings!.length}）
+                          <span className="font-normal text-ink-3">
+                            · 含 harness 原生 subagent 使用审计
+                          </span>
+                          {current.status === 'done' && current.intent_id && (
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              className="ml-auto"
+                              disabled={dismissingWarnings === current.id}
+                              onClick={() => dismissWarnings(current)}
+                            >
+                              {dismissingWarnings === current.id ? '忽略中…' : '忽略这些告警'}
+                            </Button>
                           )}
-                          {w}
                         </div>
-                      ))}
-                    </div>
+                        {current.warnings!.map((w, i) => (
+                          <div key={i} className="tw-break text-[11px] leading-relaxed text-ink-2">
+                            {/subagent/i.test(w) && (
+                              <Badge size="sm" variant="warning" className="mr-1">
+                                原生 subagent
+                              </Badge>
+                            )}
+                            {w}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  {(current.infos?.length ?? 0) > 0 && (
+                    <details className="rounded-md border border-hairline px-2.5 py-1.5">
+                      <summary className="cursor-pointer text-[11px] text-ink-3">
+                        交接提示（{current.infos!.length} 条，非问题）
+                      </summary>
+                      <div className="mt-1 space-y-1">
+                        {current.infos!.map((info, i) => (
+                          <div key={i} className="tw-break text-[11px] leading-relaxed text-ink-3">
+                            {info}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </div>
               </details>

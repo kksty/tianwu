@@ -6,7 +6,8 @@ import type { Camera } from './render'
  * The camera never scales itself to the canvas: the ledger is polled every few
  * seconds and a live run keeps adding facts, so fitting on every rebuild would
  * move the picture out from under whatever the operator was reading. 「适配画布」
- * in the toolbar (and double-clicking the canvas) is the explicit fit.
+ * in the toolbar is the only explicit fit; a double-click on the map is
+ * deliberately inert.
  */
 export const OPEN_ZOOM = 1
 

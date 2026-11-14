@@ -51,6 +51,29 @@ func newCommanderServer(t *testing.T) (*Server, *commanderExec, *store.Store) {
 	return s, ex, st
 }
 
+// The operator's "continue current goal" resume attaches one open goal to the
+// next commander round. It is consumed by that round, not stored as a second
+// persistent instruction.
+func TestStartCommanderInjectsOneShotResumeScope(t *testing.T) {
+	s, ex, _ := newCommanderServer(t)
+	s.setResumeScope(resumeScope{GoalID: "g_open", Statement: "继续打剩余候选"})
+	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ex.req.Prompt, "## 本轮继续的目标") || !strings.Contains(ex.req.Prompt, "g_open") {
+		t.Fatalf("resume scope missing from the round prompt: %q", ex.req.Prompt)
+	}
+	if s.consumeResumeScope() != nil {
+		t.Fatal("resume scope was not consumed by the round")
+	}
+	if _, _, err := s.StartCommander(context.Background(), "## 本轮\nboard", false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ex.req.Prompt, "## 本轮继续的目标") {
+		t.Fatalf("resume scope leaked into the next round: %q", ex.req.Prompt)
+	}
+}
+
 // A first commander turn must load the skill through harness and carry the
 // control-plane coordinates; tianwu never pastes the skill body itself (D78).
 func TestStartCommanderLoadsSkillOnFirstTurn(t *testing.T) {

@@ -651,7 +651,13 @@ export const api = {
   // them up again.
   pauseProject: () =>
     post<{ paused: boolean; canceled: number }>(`${pbase()}/api/project/pause`),
-  resumeProject: () => post<{ paused: boolean }>(`${pbase()}/api/project/resume`),
+  // goal_id attaches the open goal to the next commander round: the explicit
+  // "continue current goal" scope. It is not a new goal and not a chat message.
+  resumeProject: (goal_id?: string) =>
+    post<{ paused: boolean; scope_goal_id?: string }>(
+      `${pbase()}/api/project/resume`,
+      goal_id ? { goal_id } : {},
+    ),
   // The explicit operator action for a finished or parked engagement: append a
   // new independent goal and, when the project is in a resumable stand-by
   // (completion or manual pause), clear the pause and wake the commander. It is
@@ -699,6 +705,11 @@ export const api = {
     ).then((r) => r.events ?? []),
   cancelRun: (id: string) =>
     post<{ canceled: string }>(`${pbase()}/api/runs/${encodeURIComponent(id)}/cancel`),
+  // Operator "ignore" for a finished direction's non-fatal handoff warnings.
+  // The run rows stay in the ledger; the status-page count and board stop
+  // counting this run. Refused by the server for a still-running/failed intent.
+  dismissRunWarnings: (id: string) =>
+    post<Run>(`${pbase()}/api/runs/${encodeURIComponent(id)}/warnings/dismiss`),
 
   reports: () => get<{ reports: ReportMeta[] }>(`${pbase()}/api/reports`).then((r) => r.reports ?? []),
   // Advisory precheck run before a report is queued: how many conclusions would

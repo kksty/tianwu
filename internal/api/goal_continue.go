@@ -36,6 +36,13 @@ const (
 const (
 	pauseCauseManual     = "manual"
 	pauseCauseCompletion = "completion"
+	// stopReason* are the structured reasons a commander may attach to
+	// POST /api/project/standby. goal_achieved is the only one the control plane
+	// can check against the ledger: it is refused while any goal is still open,
+	// so "目标已达成" cannot be a prose claim without a stamp.
+	stopReasonGoalAchieved = "goal_achieved"
+	stopReasonBlocked      = "blocked"
+	stopReasonLowValue     = "low_value"
 	// pauseCauseCommander is the commander's explicit "stop this engagement"
 	// request (POST /api/project/standby). It is a real pause: persists across
 	// restarts, cancels executing directions, and only the operator can resume.
@@ -120,6 +127,36 @@ func (s *Server) projectStateLocked() projectState {
 		}
 	}
 	return st
+}
+
+// resumeScope is the one-shot target attached by the operator's "continue
+// current goal" action. StartCommander consumes it and injects a section into
+// the next commander prompt, so the round knows it is continuing that open goal
+// without a persistent instruction or a chat message.
+type resumeScope struct {
+	GoalID    string
+	Statement string
+}
+
+func (s *Server) setResumeScope(scope resumeScope) {
+	if s == nil || strings.TrimSpace(scope.GoalID) == "" {
+		return
+	}
+	s.scopeMu.Lock()
+	defer s.scopeMu.Unlock()
+	sc := scope
+	s.resumeScope = &sc
+}
+
+func (s *Server) consumeResumeScope() *resumeScope {
+	if s == nil {
+		return nil
+	}
+	s.scopeMu.Lock()
+	defer s.scopeMu.Unlock()
+	sc := s.resumeScope
+	s.resumeScope = nil
+	return sc
 }
 
 // appendGoalAndContinue is the explicit operator action for a finished or parked

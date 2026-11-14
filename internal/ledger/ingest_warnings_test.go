@@ -28,6 +28,63 @@ func newWarningLedger(t *testing.T) (*store.Store, model.Run) {
 	return st, run
 }
 
+// A batch that fails to commit must name the offending item, not only say
+// "not fully persisted": the d_-instead-of-f_ playbook source was the real
+// failure behind the opaque warning on the live project.
+func TestUncommittedBatchNamesThePlaybookSource(t *testing.T) {
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_1")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile), `
+{"kind":"playbook","title":"字典注入套件","from_fact_ids":["d_20261114_not_a_fact"],"summary":"s"}
+`)
+	st, run := newWarningLedger(t)
+	g := &Ingestor{Store: st}
+	if got := g.OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour)); got != 1 {
+		t.Fatalf("declared = %d, want the playbook line counted", got)
+	}
+	got, ok := st.GetRun(run.ID)
+	if !ok {
+		t.Fatal("run missing")
+	}
+	joined := strings.Join(got.Warnings, "\n")
+	for _, want := range []string{
+		"交接未全部持久化", "字典注入套件", "d_20261114_not_a_fact",
+		"不是账本事实 ID", "保留消费游标 0",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("warning missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+// Expected in-batch corrections are notes, not warnings: they must not raise
+// the status page's handoff-warning count or enter the next prompt's problem
+// section.
+func TestRepeatedDeclarationIsInfoNotWarning(t *testing.T) {
+	caseRoot := t.TempDir()
+	workDir := filepath.Join(caseRoot, "in_1")
+	writeFile(t, filepath.Join(workDir, HandoffDir, HandoffFile), `
+{"kind":"vuln","title":"同一观察","declaration_id":"obs-1","summary":"first"}
+{"kind":"vuln","title":"同一观察","declaration_id":"obs-1","summary":"second"}
+`)
+	st, run := newWarningLedger(t)
+	g := &Ingestor{Store: st}
+	g.OnFinish(run.ID, "in_1", caseRoot, workDir, time.Now().Add(-time.Hour))
+	got, ok := st.GetRun(run.ID)
+	if !ok {
+		t.Fatal("run missing")
+	}
+	if len(got.Warnings) != 0 {
+		t.Fatalf("a correction became a warning: %v", got.Warnings)
+	}
+	joined := strings.Join(got.Infos, "\n")
+	for _, want := range []string{"同 ID", "obs-1", "非错误"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("info missing %q: %v", want, got.Infos)
+		}
+	}
+}
+
 func TestDeclaredEvidenceWarningsAcrossThreeStates(t *testing.T) {
 	caseRoot := t.TempDir()
 	workDir := filepath.Join(caseRoot, "in_1")

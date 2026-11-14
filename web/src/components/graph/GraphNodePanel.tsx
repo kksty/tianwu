@@ -43,6 +43,7 @@ import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
 import type { GraphNode } from '@/graph/model'
 import type { Fact, Run } from '@/lib/types'
+import { DockResizeHandle, type DockSize } from './DockResize'
 
 /** A titled block: one hairline between sections, 13px ink-1 title row. */
 function Section({ title, extra, children }: { title: ReactNode; extra?: ReactNode; children: ReactNode }) {
@@ -117,6 +118,7 @@ function NodeWorkspace({
   node,
   facts,
   runs,
+  dock,
   onSelectFact,
   onClose,
   onChanged,
@@ -128,6 +130,8 @@ function NodeWorkspace({
   facts: Fact[]
   /** The run poll: a direction's frozen input versions live on its latest run. */
   runs: Run[]
+  /** Shared width + drag glue for the graph's right-hand overlays. */
+  dock: DockSize
   /** Select a fact node (`f:<id>`) when a cited fact is clicked. */
   onSelectFact: (factId: string) => void
   onClose: () => void
@@ -270,7 +274,11 @@ function NodeWorkspace({
     // inner scroll area shrink and scroll. A max-height on an auto-height flex
     // column only clamps the box — the content kept its height and was simply
     // clipped, so a long fact had unreachable rows and no wheel scrolling.
-    <div className="absolute bottom-12 right-3 top-[56px] flex w-[360px] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur">
+    <div
+      className="absolute bottom-12 right-3 top-[56px] flex max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl border border-hairline bg-card/95 shadow-elevated backdrop-blur"
+      style={{ width: dock.width }}
+    >
+      <DockResizeHandle dock={dock} />
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-hairline bg-surface-1/60 px-4 py-2.5">
         <Badge size="sm" variant={isFact ? kindVariant(fact?.kind) : 'primary'}>
           {node.type === 'fact' ? (fact?.kind ?? 'fact') : node.type === 'step' ? 'intent' : node.type}

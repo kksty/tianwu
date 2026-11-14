@@ -8,6 +8,11 @@
 //   持续   + 方向        -> instruction scoped to that direction subtree
 // A one-shot hint is never an instruction and a persistent constraint is never a
 // message; the receipt says which one happened and what it affects.
+//
+// 「持续」 is a shortcut into the same rows the 持久指令 page manages, not a
+// second kind of record: while it is selected the box echoes the standing set,
+// because an older sentence about the same topic must be visible at the moment
+// one more is written.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
@@ -34,24 +39,31 @@ import {
   directiveRequest,
   oneShotDirections,
   persistentDirections,
+  randomRequestKey,
   runningDirectionsHint,
   type DirectiveDraft,
 } from '@/lib/directive'
+import {
+  activeInstructions,
+  instructionPreview,
+  instructionSummary,
+  sortInstructions,
+} from '@/lib/instructions'
 import { statusLabel } from '@/lib/format'
 import { usePoll } from '@/lib/hooks'
-import type { DirectiveTarget } from '@/lib/types'
+import type { DirectiveResponse, DirectiveTarget } from '@/lib/types'
 
 type ComposerProps = {
-  onSent: () => void
+  onSent: (result: DirectiveResponse) => void
   paused: boolean
   runningExecutors: number
   autoFocus?: boolean
-}
-
-function randomKey(): string {
-  return Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) =>
-    n.toString(16).padStart(8, '0'),
-  ).join('')
+  /** Jump to the persistent-instruction surface; absent where there is no such page. */
+  onManageInstructions?: () => void
+  /** What that jump is called where it lands somewhere other than the panel. */
+  manageLabel?: string
+  /** Bumped by the management surface so the inline echo refetches after an edit there. */
+  refreshInstructions?: number
 }
 
 export function ChatComposer(props: ComposerProps) {
@@ -60,7 +72,7 @@ export function ChatComposer(props: ComposerProps) {
   return <Composer {...props} />
 }
 
-function Composer({ onSent, paused, runningExecutors, autoFocus = false }: ComposerProps) {
+function Composer({ onSent, paused, runningExecutors, autoFocus = false, onManageInstructions, manageLabel = '更正/撤销', refreshInstructions = 0 }: ComposerProps) {
   // 一次性 is the safe default: it reads once and is not inherited. Turning the
   // switch to 持续 changes the target default from 指挥官 to 整个项目.
   const [persistent, setPersistent] = useSessionState('composer.persistent', false)
@@ -71,6 +83,8 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [receipt, setReceipt] = useState('')
+  // Bumped on a successful send so the inline standing set refetches at once.
+  const [sentSeq, setSentSeq] = useState(0)
 
   const intents = usePoll(api.intents, 8000)
   // One-shot may only reach a direction that is not settled; a persistent
@@ -163,7 +177,7 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
       intentID: target === 'intent' ? intentID : '',
       steer: steerActive,
     }
-    keyRef.current = directiveKeyFor(keyRef.current, directiveFingerprint(draft), randomKey)
+    keyRef.current = directiveKeyFor(keyRef.current, directiveFingerprint(draft), randomRequestKey)
     setSavedKey(keyRef.current)
     setBusy(true)
     setError('')
@@ -189,7 +203,8 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
       setSteer(false)
       keyRef.current = { fingerprint: '', key: '' }
       setSavedKey(keyRef.current)
-      onSent()
+      setSentSeq((current) => current + 1)
+      onSent(result)
     } catch (e) {
       if (active.current) setError(directiveErrorMessage(e))
     } finally {
@@ -295,6 +310,14 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
         </div>
       )}
 
+      {persistent && (
+        <PersistentSet
+          onManage={onManageInstructions}
+          manageLabel={manageLabel}
+          refresh={sentSeq + refreshInstructions}
+        />
+      )}
+
       <Textarea
         rows={2}
         value={text}
@@ -347,6 +370,64 @@ function Composer({ onSent, paused, runningExecutors, autoFocus = false }: Compo
           {receipt}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The standing constraint set, shown while the operator is about to write one
+ * more. It is a read-only echo of the same rows the 持久指令 does the managing:
+ * the point is that an existing sentence is visible at the moment of appending,
+ * so correction (same row, v+1) is the obvious move and a second contradictory
+ * sentence is a visible choice rather than an accident.
+ */
+function PersistentSet({ onManage, manageLabel, refresh }: { onManage?: () => void; manageLabel: string; refresh: number }) {
+  const set = usePoll(() => api.instructions('', 'active'), 8000)
+  // The query already asks for active rows; filtering again keeps the echo from
+  // ever presenting a revoked sentence as a standing constraint.
+  const rows = useMemo(
+    () => sortInstructions(activeInstructions(set.data?.instructions ?? [])),
+    [set.data],
+  )
+  const shown = rows.slice(0, 3)
+  // A just-created instruction must appear in the echo immediately: the poll
+  // interval is for someone else's edits, not for the operator's own write.
+  const reload = set.reload
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return }
+    reload()
+  }, [refresh, reload])
+  return (
+    <div data-instruction-set className="rounded-lg border border-hairline bg-surface-2/60 px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-medium text-ink-2">{instructionSummary(rows)}</span>
+        {onManage && (
+          <button
+            type="button"
+            onClick={onManage}
+            className="ml-auto text-[11px] text-primary transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            {manageLabel}
+          </button>
+        )}
+      </div>      {shown.length > 0 && (
+        <ul className="mt-1 space-y-1">
+          {shown.map((row) => (
+            <li key={row.id} className="flex min-w-0 gap-1.5 text-[11px] leading-4 text-ink-3">
+              <span className="tw-nums shrink-0 font-mono">v{row.version}</span>
+              <span className="shrink-0">{row.intent_id ? '方向' : '项目'}</span>
+              <span className="truncate">{instructionPreview(row.text, 60)}</span>
+            </li>
+          ))}
+          {rows.length > shown.length && (
+            <li className="text-[11px] leading-4 text-ink-3">…另有 {rows.length - shown.length} 条</li>
+          )}
+        </ul>
+      )}
+      <p className="mt-1 text-[11px] leading-4 text-ink-3">
+        同一主题的改口请更正原条目（变新版本）；两条相反的指令会同时进入后续提示词。
+      </p>
     </div>
   )
 }

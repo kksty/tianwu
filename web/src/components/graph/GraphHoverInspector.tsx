@@ -12,6 +12,7 @@ export function GraphHoverInspector({
   model,
   selected,
   pulseFor,
+  width,
 }: {
   model: GraphModel
   /** The pinned selection: hovering the selected item keeps its NodePanel
@@ -20,6 +21,10 @@ export function GraphHoverInspector({
   selected?: string | null
   /** 运行中意图的 pulse；由 GraphPanel 从 board 里取，回调保持稳定。 */
   pulseFor?: (intentID: string) => RunPulse | undefined
+  /** Shared width of the graph's right-hand overlays; the hover card is not
+   *  draggable itself (it disappears when the pointer leaves it), it just matches
+   *  the width the operator set on the pinned panel / 下发 dock. */
+  width?: number
 }) {
   const hovered = useHovered()
   if (!hovered) return null
@@ -33,5 +38,5 @@ export function GraphHoverInspector({
   const step = intent ? (model.stepByIntent?.get(intent.id) ?? null) : null
   const pulse = intent && pulseFor ? pulseFor(intent.id) : undefined
 
-  return <GraphInspector node={node} edge={edge} pulse={pulse} model={node?.model ?? step?.model} />
+  return <GraphInspector node={node} edge={edge} pulse={pulse} model={node?.model ?? step?.model} width={width} />
 }

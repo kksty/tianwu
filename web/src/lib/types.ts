@@ -572,6 +572,12 @@ export interface Run {
   usage?: TokenUsage
   /** Non-fatal problems the run recorded (evidence paths, native subagent, stalls). */
   warnings?: string[]
+  /** Non-problem handoff notes (today: expected in-batch corrections). They are
+   *  deliberately not counted as warnings by the board or the next prompt. */
+  infos?: string[]
+  /** The operator ignored this run's non-fatal handoff warnings; the rows stay
+   *  in the ledger but the status page and board stop counting them. */
+  warnings_dismissed?: boolean
   /** Read-only path of the archived task brief, relative to the case root. */
   brief_path?: string
   /** The run this one continued (steer/handoff/wake), if any. */
@@ -716,6 +722,9 @@ export interface Message {
   from_generation?: number
   to_participant_id: string
   to_generation?: number
+  /** Set on an instruction-change notice: which row, which revision. */
+  instruction_id?: string
+  instruction_version?: number
   kind?: string
   text: string
   fact_refs?: string[]

@@ -230,6 +230,89 @@ func TestProjectStandbyRequiresLiveCommanderRound(t *testing.T) {
 	}
 }
 
+// "goal achieved" is a structured claim, not prose: the control plane checks it
+// against the ledger and refuses to park a project whose goal is still open. The
+// commander must call complete first; blocked/low_value remain available when the
+// goal is genuinely not reached but continuing is not worth it.
+func TestCommanderStandbyGoalAchievedRequiresMetGoal(t *testing.T) {
+	s, _ := newBindingServer(t)
+	if _, err := s.Store.AddGoal(model.Goal{Statement: "拿到管理员立足点"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.AddRun(model.Run{Purpose: "commander"}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	s.Register(mux)
+	do := func(req *http.Request) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	stop := func(body string) *httptest.ResponseRecorder {
+		req := standbyRequest(t, body)
+		req.Header.Set("X-Tw-Actor", collab.CommanderID)
+		req = req.WithContext(WithAgentSurface(req.Context()))
+		return do(req)
+	}
+
+	rec := stop(`{"reason":"目标已达成","stop_reason":"goal_achieved"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("standby on an open goal = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if s.paused.Load() {
+		t.Fatal("a refused goal_achieved standby paused the project")
+	}
+	if containsKind(actionsKinds(s), "standby") {
+		t.Fatal("a refused goal_achieved standby was recorded as an action")
+	}
+
+	// A blocked stop is still legal while the goal is open: only the
+	// "goal achieved" claim is gated by the ledger.
+	rec = stop(`{"reason":"授权阻塞","stop_reason":"blocked"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("blocked standby = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !s.paused.Load() {
+		t.Fatal("blocked standby did not pause the project")
+	}
+
+	// The allowed path (goal met, then goal_achieved) needs a real completed goal
+	// with an evidence-bound seal; the store's PinGoal enforces that and the
+	// existing goal-completion tests cover it. This case is about the refusal:
+	// an open goal cannot be parked under a "done" claim.
+}
+
+// The operator's "continue current goal" is an explicit scope: the resume names
+// the open goal and the next commander round consumes it once. It creates no
+// goal and does not leak into a later round.
+func TestProjectResumeWithGoalIDAttachesOneShotScope(t *testing.T) {
+	s, p := newBindingServer(t)
+	goal, err := s.Store.AddGoal(model.Goal{Statement: "继续打剩余候选"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetPausedWithKind(true, project.PauseKindCommanderStandby); err != nil {
+		t.Fatal(err)
+	}
+	s.SetPaused(true)
+
+	rec := call(t, s, http.MethodPost, "/api/project/resume", map[string]any{"goal_id": goal.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resume with goal = %d: %s", rec.Code, rec.Body.String())
+	}
+	scope := s.consumeResumeScope()
+	if scope == nil || scope.GoalID != goal.ID || scope.Statement != goal.Statement {
+		t.Fatalf("resume scope = %+v, want goal %s", scope, goal.ID)
+	}
+	if again := s.consumeResumeScope(); again != nil {
+		t.Fatalf("resume scope was not one-shot: %+v", again)
+	}
+	if s.paused.Load() {
+		t.Fatal("resume did not clear the project pause")
+	}
+}
+
 // standbyRequest is the wire shape every standby case shares: the reason body is
 // optional to the handler, and the surface/declaration headers are added per
 // case.

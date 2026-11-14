@@ -13,6 +13,13 @@
 // disagree. Both use the renderer's own `edgeCurve`/`pointOnCurve` and its
 // `halfExtentX`, so "what you can point at" is the curve that is drawn.
 //
+// "What does one pointer position pick?" is one rule, `pickAt`: a node, then a
+// ghost ring, then an edge. A ghost is a dead zone rather than a miss, because
+// the intent edge is drawn up to the ring — without the rule a click on a ghost
+// would select that edge and pin the direction's panel. The ghost is therefore
+// reported separately, so the canvas can tell "clicked a ghost, do nothing" from
+// "clicked empty canvas, clear the selection".
+//
 // The index is built lazily on the first hover of a settled map, so its build is
 // a real main-thread cost once per settle: it stores entities in flat numeric
 // arrays, keys buckets with one integer, and skips re-inserting an edge into a
@@ -94,12 +101,12 @@ interface HalfExtent {
 }
 
 /**
- * The drawn footprint the pointer tests against: facts are dots, every other
- * node is a box of half-height h. Matches the painter's shape (a wide pill stays
- * selectable at its ends without swallowing its neighbours).
+ * The drawn footprint the pointer tests against: facts and ghost rings are dots,
+ * every other node is a box of half-height h. Matches the painter's shape (a
+ * wide pill stays selectable at its ends without swallowing its neighbours).
  */
 function drawnExtent(n: GraphNode, layered: boolean): HalfExtent {
-  const dot = n.type === 'fact'
+  const dot = n.type === 'fact' || n.type === 'ghost'
   return {
     halfW: dot ? radiusOf(n) : halfExtentX(n, layered),
     halfH: dot ? radiusOf(n) : n.h,
@@ -107,21 +114,22 @@ function drawnExtent(n: GraphNode, layered: boolean): HalfExtent {
 }
 
 /**
- * Exact node hit test over a candidate list; returns the nearest hit by the
- * normalised box distance. Ghost rings are not pointable (they stand for a step
- * that produced nothing yet; the step itself is the node), matching the canvas.
+ * Nearest node under the pointer among `nodes`, restricted by `accept`, ranked
+ * by the normalised box distance. One predicate for both node families, so the
+ * node test and the ghost test can never disagree about a footprint.
  */
-export function nodeHitTest(
+function nearestHit(
   nodes: readonly GraphNode[],
   x: number,
   y: number,
   pad: number,
   layered: boolean,
+  accept: (n: GraphNode) => boolean,
 ): GraphNode | null {
   let best: GraphNode | null = null
   let bestD = Infinity
   for (const n of nodes) {
-    if (n.type === 'ghost') continue
+    if (!accept(n)) continue
     const { halfW, halfH } = drawnExtent(n, layered)
     const w = halfW + pad
     const h = halfH + pad
@@ -135,6 +143,38 @@ export function nodeHitTest(
     }
   }
   return best
+}
+
+/**
+ * Exact node hit test over a candidate list. Ghost rings are not pointable (they
+ * stand for a step that produced nothing yet; the step itself is the node),
+ * matching the canvas.
+ */
+export function nodeHitTest(
+  nodes: readonly GraphNode[],
+  x: number,
+  y: number,
+  pad: number,
+  layered: boolean,
+): GraphNode | null {
+  return nearestHit(nodes, x, y, pad, layered, (n) => n.type !== 'ghost')
+}
+
+/**
+ * Exact ghost-ring hit test. A ghost is *not* a selectable node, but it is also
+ * not empty canvas: the intent edge is drawn right up to the ring's boundary, so
+ * a node-then-edge pick would let a click on the ring select that edge and pin
+ * the direction's panel. The ring is a dead zone instead — the canvas swallows
+ * the press, and hovering it highlights nothing.
+ */
+export function ghostHitTest(
+  nodes: readonly GraphNode[],
+  x: number,
+  y: number,
+  pad: number,
+  layered: boolean,
+): GraphNode | null {
+  return nearestHit(nodes, x, y, pad, layered, (n) => n.type === 'ghost')
 }
 
 /**
@@ -169,6 +209,37 @@ export function edgeHitTest(
     }
   }
   return best
+}
+
+/** What one pointer position picks: a node, a ghost ring, or an edge. A ghost
+ *  hit is reported instead of "nothing" so the canvas can tell "clicked a ghost
+ *  (do nothing)" from "clicked empty canvas (clear the selection)". */
+export interface GraphPick {
+  node: GraphNode | null
+  ghost: GraphNode | null
+  edge: GraphEdge | null
+}
+
+/**
+ * One pointer pick, linear scan, in the order the canvas applies it: node, then
+ * the ghost dead zone, then edge. This module owns the rule so the indexed path
+ * and the fallback used while the layout moves cannot disagree about it.
+ */
+export function pickAt(
+  nodes: readonly GraphNode[],
+  edges: readonly GraphEdge[],
+  byId: ReadonlyMap<string, GraphNode>,
+  x: number,
+  y: number,
+  pad: number,
+  tol: number,
+  layered: boolean,
+): GraphPick {
+  const node = nodeHitTest(nodes, x, y, pad, layered)
+  if (node) return { node, ghost: null, edge: null }
+  const ghost = ghostHitTest(nodes, x, y, pad, layered)
+  if (ghost) return { node: null, ghost, edge: null }
+  return { node: null, ghost: null, edge: edgeHitTest(edges, byId, x, y, tol, layered) }
 }
 
 /**
@@ -309,7 +380,6 @@ export class GraphIndex {
 
     const nodeData: FlatBoxes = { indexes: [], boxes: [] }
     for (const n of nodes) {
-      if (n.type === 'ghost') continue
       const { halfW, halfH } = drawnExtent(n, this.layered)
       nodeData.indexes.push(this.nodeList.length)
       this.nodeList.push(n)
@@ -351,6 +421,31 @@ export class GraphIndex {
     if (hits.length === 0) return null
     const candidates = hits.map((i) => this.nodeList[i])
     return nodeHitTest(candidates, x, y, pad, this.layered)
+  }
+
+  /**
+   * The ghost ring under the pointer, if any. Ghosts share the node grid: they
+   * are few, but they are still geometry, and the indexed answer has to agree
+   * with the linear fallback (and with nodeAt's candidate set) exactly.
+   */
+  ghostAt(x: number, y: number, pad: number): GraphNode | null {
+    this.stats.queries++
+    if (this.nodeList.length === 0) return null
+    const r = Math.max(pad, 0)
+    const hits = this.nodeGrid.query(x - r, y - r, x + r, y + r)
+    this.stats.nodeCandidates += hits.length
+    if (hits.length === 0) return null
+    const candidates = hits.map((i) => this.nodeList[i])
+    return ghostHitTest(candidates, x, y, pad, this.layered)
+  }
+
+  /** The canvas's pick rule over the settled layout (see `pickAt`). */
+  pickAt(x: number, y: number, pad: number, tol: number): GraphPick {
+    const node = this.nodeAt(x, y, pad)
+    if (node) return { node, ghost: null, edge: null }
+    const ghost = this.ghostAt(x, y, pad)
+    if (ghost) return { node: null, ghost, edge: null }
+    return { node: null, ghost: null, edge: this.edgeAt(x, y, tol) }
   }
 
   edgeAt(x: number, y: number, tol: number): GraphEdge | null {
