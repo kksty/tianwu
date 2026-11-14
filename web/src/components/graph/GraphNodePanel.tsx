@@ -41,6 +41,7 @@ import { evidencePreviewFile, type PreviewFile } from '@/lib/evidence-preview'
 import { fmtBytes, fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
 import { useLoad, usePoll } from '@/lib/hooks'
 import { latestExecutorRun } from '@/lib/run-evidence'
+import { intentStatusDot, intentStatusTint } from '@/graph/status'
 import type { GraphNode } from '@/graph/model'
 import type { Fact, Run } from '@/lib/types'
 import { DockResizeHandle, type DockSize } from './DockResize'
@@ -55,6 +56,29 @@ function Section({ title, extra, children }: { title: ReactNode; extra?: ReactNo
       </div>
       <div className="min-w-0 space-y-1.5">{children}</div>
     </section>
+  )
+}
+
+/** A direction's status chip. Intent statuses take their colour from the graph
+ *  status vocabulary (themed tokens, so light mode stays readable); fact and
+ *  other statuses keep the shared chip palette. */
+function IntentStatusChip({ status }: { status?: string }) {
+  if (!status) return null
+  const tint = intentStatusTint(status)
+  if (!tint) {
+    return <StatusIndicator compact status={statusKind(status)} label={statusLabel(status)} className="shrink-0" />
+  }
+  const pulsing = status === 'running' || status === 'reviewing'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-2 py-0 text-[11px] font-medium leading-4 ${tint}`}
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${intentStatusDot(status) ?? ''} ${pulsing ? 'animate-pulse' : ''}`}
+        aria-hidden="true"
+      />
+      {statusLabel(status)}
+    </span>
   )
 }
 
@@ -289,7 +313,7 @@ function NodeWorkspace({
           </Badge>
         )}
         {node.status && isnStatus(node.status) && (
-          <StatusIndicator compact status={statusKind(node.status)} label={statusLabel(node.status)} className="shrink-0" />
+          <IntentStatusChip status={node.status} />
         )}
         <Button
           size="icon-sm"
@@ -569,11 +593,7 @@ function NodeWorkspace({
                   className="rounded-lg border border-hairline px-2.5 py-2 transition-colors hover:bg-surface-2/50"
                 >
                   <div className="flex items-center gap-1.5">
-                    <StatusIndicator
-                      compact
-                      status={statusKind(child.status)}
-                      label={statusLabel(child.status)}
-                    />
+                    <IntentStatusChip status={child.status} />
                     <span className="tw-break min-w-0 flex-1 text-[12px] text-ink-2">{child.title}</span>
                     {child.facts > 0 && (
                       <span className="tw-nums shrink-0 font-mono text-[11px] text-ink-3">{child.facts} 事实</span>

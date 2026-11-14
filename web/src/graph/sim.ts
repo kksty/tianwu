@@ -21,12 +21,13 @@ export { radiusOf }
  *            centre. Good for "what is connected to what".
  * layered  — 链路树 / 递进分层: one column per hop, left to right. An intent
  *            step is a labelled pill, the facts it produced are packed in the
- *            column immediately to its right, and a step that consumes those
- *            facts sits at their centre. The tree is laid out deterministically
- *            (tidy-tree packing), so no edge has to cross a neighbouring fan to
- *            reach its node: reading left→right is reading the engagement's
- *            progression, and every intent step is a visible stop instead of a
- *            spoke.
+ *            column immediately to its right, and a step that consumes several
+ *            facts sits one column after the *deepest* of them: a direction
+ *            cannot start before the last premise exists. The tree is laid out
+ *            deterministically (tidy-tree packing), so no edge has to cross a
+ *            neighbouring fan to reach its node: reading left→right is reading
+ *            the engagement's progression, and every intent step is a visible
+ *            stop instead of a spoke.
  */
 export type LayoutMode = 'force' | 'layered'
 
@@ -262,15 +263,27 @@ export class ForceSim {
       if (!s || !t) continue
       if (s.type === 'step' && (t.type === 'fact' || t.type === 'ghost')) addChild(t, s)
     }
-    // Context: the first context fact (or the brief) is the tree parent of a
-    // step. Hard premises are that context; references/pins are cross-links and
-    // must not pull a step into a lane as if they were required.
+    // Context: a step hangs off the premise that decides its hop — the deepest
+    // one. Taking the first premise in from_fact_ids put a direction that waited
+    // for a hop-4 credential in the column right after its hop-2 injection fact:
+    // it read as 第 3 跳 while the ledger's own depth said 第 5 跳. References/pins
+    // are cross-links and must not pull a step into a lane as if they were a gate.
+    // The losing premises still draw as long blue gate lines, which is the point:
+    // the direction could not start until the last of them existed.
+    const stepParent = new Map<string, GraphNode>()
     for (const e of this.edges) {
-      if (e.kind !== 'intent' && e.kind !== 'premise') continue
+      if (e.kind !== 'premise') continue
       const s = nodeOf(e.source)
       const t = nodeOf(e.target)
       if (!s || !t) continue
-      if (t.type === 'step' && (s.type === 'fact' || s.type === 'project')) addChild(t, s)
+      if (t.type !== 'step') continue
+      if (s.type !== 'fact' && s.type !== 'boundary' && s.type !== 'project') continue
+      const held = stepParent.get(t.id)
+      if (!held || s.depth > held.depth) stepParent.set(t.id, s)
+    }
+    for (const [id, parent] of stepParent) {
+      const step = nodeOf(id)
+      if (step) addChild(step, parent)
     }
     // Spawn lineage only fills in a step that has no context edge at all.
     for (const e of this.edges) {
@@ -390,6 +403,51 @@ export class ForceSim {
 
   reheat(alpha = 0.85) {
     this.alpha = Math.max(this.alpha, alpha)
+  }
+
+  /**
+   * Keep a dropped node where the operator put it.
+   *
+   * The layered tick springs every node back to its anchor, so a drag that only
+   * changed x/y was undone on the next tick — dragging a second node visibly
+   * reset the first one. Moving the anchor too is what makes a drop stick until
+   * `relayout()`. (The force map has no anchors; its springs still settle.)
+   */
+  holdAt(id: string, x: number, y: number) {
+    if (this.mode !== 'layered') return
+    const node = this.index.get(id)
+    if (!node) return
+    node.x = x
+    node.y = y
+    node.vx = 0
+    node.vy = 0
+    this.anchors.set(id, { x, y })
+  }
+
+  /**
+   * Discard manual drops and rebuild the deterministic chain tree — the
+   * toolbar's 重新布局. Merely re-heating would spring every anchor (including
+   * the dropped ones) back to where it already is and change nothing.
+   */
+  relayout() {
+    if (this.mode === 'layered') {
+      // Remember where the nodes are painted, rebuild the slots, then put the
+      // positions back: the springs carry them home, so a dropped node glides
+      // back instead of teleporting.
+      const painted = this.nodes.map((n) => ({ id: n.id, x: n.x, y: n.y }))
+      this.depthBands.length = 0
+      this.anchors.clear()
+      this.placeLayered()
+      for (const p of painted) {
+        const node = this.index.get(p.id)
+        if (!node) continue
+        node.x = p.x
+        node.y = p.y
+        node.vx = 0
+        node.vy = 0
+      }
+    }
+    this.reheat(1)
   }
 
   get running() {

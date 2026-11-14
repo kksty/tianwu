@@ -26,7 +26,7 @@ const FACT_KINDS = ['vuln', 'cred', 'host', 'service', 'loot', 'artifact', 'note
 
 /** 中文状态名 → render.ts 的意图状态色键。 */
 const INTENT_STATUSES: readonly [string, string][] = [
-  ['排队', 'pending'],
+  ['排队 / 认领 / 等待', 'pending'],
   ['执行中', 'running'],
   ['固定复核中', 'reviewing'],
   ['失败', 'failed'],
@@ -74,6 +74,21 @@ function Line({ color, style }: { color: string; style: 'solid' | 'dashed' | 'do
         borderTopWidth: 2,
         borderTopStyle: style === 'dotted' ? 'dotted' : style === 'dashed' ? 'dashed' : 'solid',
         borderColor: color,
+      }}
+      aria-hidden="true"
+    />
+  )
+}
+
+/** A produced edge is not one colour: it follows the direction's status. A
+ *  gradient swatch says that in the legend without pretending the line is
+ *  always green or always grey. */
+function StatusLine() {
+  return (
+    <span
+      className="h-0.5 w-4 shrink-0 rounded-full"
+      style={{
+        background: `linear-gradient(90deg, ${INTENT_COLORS.pending}, ${INTENT_COLORS.running}, ${INTENT_COLORS.reviewing}, ${INTENT_COLORS.done})`,
       }}
       aria-hidden="true"
     />
@@ -191,10 +206,19 @@ export function GraphLegend({ className }: { className?: string }) {
             </Row>
           </div>
 
-          <GroupTitle>意图（边）</GroupTitle>
+          <GroupTitle>意图状态（节点 / 产出边）</GroupTitle>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
             {INTENT_STATUSES.map(([name, key]) => (
-              <Row key={key}>
+              <Row
+                key={key}
+                title={
+                  key === 'reviewing'
+                    ? '青色 + 缓慢呼吸框：正在独立核验。产出边是青色虚线，和蓝色实线「必要前提」区分'
+                    : key === 'pending'
+                      ? '排队、认领（claimed）和等待子任务（waiting）都还没有执行，统一用琥珀色；它们的产出边是琥珀虚线'
+                      : undefined
+                }
+              >
                 <span
                   className="h-2 w-3.5 shrink-0 rounded-sm border"
                   style={{ borderColor: INTENT_COLORS[key] ?? CANVAS.ink3 }}
@@ -205,21 +229,25 @@ export function GraphLegend({ className }: { className?: string }) {
             ))}
           </div>
           <Hint>
-            固定复核中（reviewing）的产出边画成虚线蓝：蓝色实线只表示「必要前提」这一种硬门槛。
+            排队、认领（claimed）、等待子任务（waiting）都还没有执行，统一用琥珀色；等待子任务不是停放，它会被唤醒。
+          </Hint>
+          <Hint>
+            固定复核中（reviewing）用青色 + 缓慢呼吸框表示「正在独立核验」；它的产出边是青色虚线。
+            必要前提仍是蓝色实线，两者不再同色。
           </Hint>
 
           <GroupTitle>关系（边）</GroupTitle>
           <div className="space-y-0.5">
             <Row title="意图边（步骤 → 产出的每个事实）：颜色跟随方向状态；它表示这次工作产出了什么，不是前提">
-              <Line color="rgba(169,178,193,0.85)" style="solid" />
-              产出（步骤 → 事实）
+              <StatusLine />
+              产出（颜色跟随方向状态）
             </Row>
-            <Row title="from_fact_ids：方向派发的硬门槛；蓝色实线是唯一「硬门槛」色。前提不可派发时会改成虚线红（阻挡）">
+            <Row title="from_fact_ids：方向派发的硬门槛；蓝色实线是唯一「硬门槛」色。前提不可派发时会改成点线红（阻挡）">
               <Line color={EDGE_COLORS.premise} style="solid" />
               必要前提
             </Row>
-            <Row title="不可复核/未核验/缺失的前提都会挡住派发（与准入同源规则）；虚线红，复核通过后恢复蓝色实线">
-              <Line color={EDGE_COLORS.premiseBlocked} style="dashed" />
+            <Row title="不可复核/未核验/缺失的前提都会挡住派发（与准入同源规则）；点线红，复核通过后恢复蓝色实线">
+              <Line color={EDGE_COLORS.premiseBlocked} style="dotted" />
               前提不满足（阻挡）
             </Row>
             <Row title="context_fact_ids：阅读选择，不是派发门槛；绿色虚线">
@@ -303,7 +331,7 @@ export function GraphLegend({ className }: { className?: string }) {
             <Row title="warm 事实保持正常亮度，不加环">
               <span
                 className="h-3 w-3 shrink-0 rounded-full"
-                style={{ background: INTENT_COLORS.pending }}
+                style={{ background: CANVAS.ink3 }}
                 aria-hidden="true"
               />
               温：正常亮度
@@ -318,8 +346,11 @@ export function GraphLegend({ className }: { className?: string }) {
             </Row>
           </div>
 
-          <Hint>方块第二行 = 实际模型；力导向视图的虚线环 = 档位。</Hint>
-          <Hint>悬停看详情 · 滚轮缩放 · 拖拽节点 · 右侧面板左缘可拖动调宽</Hint>
+          <Hint>
+            方块第二行 = 模型（已运行时是实际模型，未运行时是配置/默认模型）；力导向视图的虚线环 =
+            档位（执行中/复核中优先显示状态环）。
+          </Hint>
+          <Hint>悬停看详情 · 滚轮缩放 · 拖拽节点（位置保留，重新布局复位） · 右侧面板左缘可拖动调宽</Hint>
         </div>
       )}
     </div>

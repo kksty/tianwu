@@ -67,9 +67,10 @@ export interface PaintOptions {
 // Palette. The canvas paints the same dark console the DOM does, so its colours
 // are the app.css token values: canvas #0a0c10, surface #11151c, hairline
 // #1b2129, ink #e7eaf0/#a9b2c1/#788294, primary #f2554d, success #3dd68c,
-// warning #e5b53c, caution #f0883e, info #6cb6ff, ai #b388ff. `nodeColor` and
-// `edgeColor` stay the only place a colour is chosen, and the legend imports the
-// same tables instead of re-declaring hexes that drift from the brush.
+// warning #e5b53c, caution #f0883e, info #6cb6ff, review #2dd4bf, ai #b388ff.
+// `nodeColor` and `edgeColor` stay the only place a colour is chosen, and the
+// legend imports the same tables instead of re-declaring hexes that drift from
+// the brush.
 // ---------------------------------------------------------------------------
 export const CANVAS = {
   background: '#0a0c10',
@@ -83,15 +84,16 @@ export const CANVAS = {
   warning: '#e5b53c',
   caution: '#f0883e',
   info: '#6cb6ff',
+  review: '#2dd4bf',
   ai: '#b388ff',
 } as const
 
 // Solid red + marching dashes + a travelling comet is the live execution hue.
-// Blue is the hard-gate hue, but only as a *solid* line: a blocked premise is
-// dashed red (gate currently unsatisfied), and a reviewing direction's produced
-// fact edge is dashed blue so it never borrows the gate colour. A failed intent
-// is not executing anything, so it gets the ai hue instead of borrowing the live
-// red.
+// Teal + a slow breathing frame is "independent verification in progress": it
+// must not borrow the blue hard-gate hue. Blue is the gate hue, and only as a
+// *solid* line: a blocked premise is dotted red (gate currently unsatisfied),
+// and a reviewing direction's produced-fact edge is dashed teal. A failed intent
+// is not executing anything, so it gets the ai hue instead of the live red.
 export const FACT_COLORS: Record<string, string> = {
   vuln: CANVAS.primary,
   cred: CANVAS.ai,
@@ -104,11 +106,16 @@ export const FACT_COLORS: Record<string, string> = {
 
 export const INTENT_COLORS: Record<string, string> = {
   running: CANVAS.primary,
-  claimed: CANVAS.caution,
+  // Pre-run / waiting family: pending, claimed and waiting have no live work
+  // yet, so they share amber. They are separated by the status label and by
+  // the dashed produced edge; review_failed keeps its own orange.
+  claimed: CANVAS.warning,
   pending: CANVAS.warning,
-  // Reviewing keeps the info hue, but edgeStyle draws its intent edges dashed:
-  // a solid blue line must only ever mean "necessary premise" (硬门槛).
-  reviewing: CANVAS.info,
+  waiting: CANVAS.warning,
+  // Reviewing is the verification hue (teal), deliberately not the premise
+  // gate's blue. Its intent edges are dashed, so a solid blue line still only
+  // means 必要前提.
+  reviewing: CANVAS.review,
   done: CANVAS.success,
   failed: CANVAS.ai,
   review_failed: CANVAS.caution,
@@ -137,7 +144,7 @@ export const EDGE_COLORS = {
   premise: 'rgba(108,182,255,0.9)',
   // A premise whose source fact has not passed a review is a blocked gate, not
   // a normal prerequisite. Red is otherwise the live-execution hue, so this is
-  // a dashed red: "hard gate, currently unsatisfied", not "running".
+  // a dotted red: "hard gate, currently unsatisfied", not "running".
   premiseBlocked: 'rgba(242,85,77,0.85)',
   reference: REFERENCE_COLOR,
   pin: PIN_COLOR,
@@ -190,8 +197,8 @@ function edgeColor(e: GraphEdge): string {
     case 'spawn':
       return EDGE_COLORS.spawn
     // Solid blue = a hard prerequisite; a reference must never borrow that
-    // colour. A blocked gate (unreviewable/unverified/missing source) is dashed
-    // red — never the solid live-execution red.
+    // colour. A blocked gate (unreviewable/unverified/missing source) is dotted
+    // red — never the live-execution red.
     case 'premise':
       return e.blocked ? EDGE_COLORS.premiseBlocked : EDGE_COLORS.premise
     // Green dashed = a reading choice (reference); green solid double = a pin.
@@ -219,15 +226,22 @@ export interface EdgeStyle {
  * A relation's colour and line type, as one contract the painter and the legend
  * both describe. The rules that matter:
  *   - solid blue is reserved for a necessary premise (the only hard-gate style);
- *   - a blocked premise (admission would refuse it) is dashed red;
- *   - a reviewing direction's produced-fact edge is dashed, so a solid blue line
- *     can never mean two things;
+ *   - a blocked premise is dotted red (admission would refuse it);
+ *   - an intent that has not started (pending/claimed/waiting/parked) or is
+ *     waiting for review draws a dashed produced edge;
+ *   - a reviewing direction's produced-fact edge is dashed and teal, never the
+ *     premise blue, so a colour never has to be decoded from the shape;
  *   - references, spawns and goal support are dashed families of their own.
  */
 export function edgeStyle(e: GraphEdge): EdgeStyle {
   const intentEdge = e.kind === 'intent'
   const dashed =
-    (intentEdge && (e.status === 'pending' || e.status === 'parked' || e.status === 'reviewing')) ||
+    (intentEdge &&
+      (e.status === 'pending' ||
+        e.status === 'claimed' ||
+        e.status === 'waiting' ||
+        e.status === 'parked' ||
+        e.status === 'reviewing')) ||
     (e.kind === 'premise' && Boolean(e.blocked)) ||
     e.kind === 'spawn' ||
     e.kind === 'reference' ||
@@ -1071,6 +1085,9 @@ export function paint(o: PaintOptions) {
                       ? (isSel ? 2 : 1.2)
                       : 1) / Math.max(cam.k, 0.5)
     const running = intentEdge && e.status === 'running'
+    // A reviewing direction is being checked, not executed: its dashes drift
+    // slowly rather than marching, and no comet rides the edge.
+    const reviewingEdge = intentEdge && e.status === 'reviewing' && o.motion
     const dashed = style.dashed
     ctx.setLineDash(
       kind === 'spawn'
@@ -1079,15 +1096,23 @@ export function paint(o: PaintOptions) {
           ? [5 / cam.k, 4 / cam.k]
           : kind === 'supports'
             ? [2 / cam.k, 4 / cam.k]
-            : dashed
-              ? [5 / cam.k, 4 / cam.k]
-              : running
-                ? [7 / cam.k, 5 / cam.k]
-                : kind === 'host'
-                  ? [4 / cam.k, 4 / cam.k]
-                  : [],
+            // A blocked gate is dotted so it never reads as the long marching
+            // dashes of a live running edge (both are red by design).
+            : kind === 'premise' && e.blocked
+              ? [2 / cam.k, 3 / cam.k]
+              : dashed
+                ? [5 / cam.k, 4 / cam.k]
+                : running
+                  ? [7 / cam.k, 5 / cam.k]
+                  : kind === 'host'
+                    ? [4 / cam.k, 4 / cam.k]
+                    : [],
     )
-    ctx.lineDashOffset = running ? -((o.time / 45) % 12) / Math.max(cam.k, 0.5) : 0
+    ctx.lineDashOffset = running
+      ? -((o.time / 45) % 12) / Math.max(cam.k, 0.5)
+      : reviewingEdge
+        ? -((o.time / 260) % 18) / Math.max(cam.k, 0.5)
+        : 0
     traceCurve(ctx, curve)
     ctx.stroke()
 
@@ -1371,20 +1396,26 @@ export function paint(o: PaintOptions) {
         ctx.globalAlpha = alpha
       }
 
-      // Tier ring: a thin outer outline, never a second fill. The chain-tree
-      // view replaces it with the actual model name on the pill's second line —
-      // "strong" alone does not tell the operator which model ran the direction —
-      // so the ring is only kept for the force map.
-      const tierColor = n.tier && !(o.layered && n.type === 'step') ? TIER_COLORS[n.tier] : undefined
-      if (tierColor) {
+      if ((n.type === 'intent' || n.type === 'step') && n.status === 'reviewing') {
+        // A calm, slow verification frame, not the fast execution pulse. The
+        // dashed outer ring keeps reviewing recognisable by shape when the
+        // operator has reduced motion on (no breathing, but still a frame).
+        const phase = o.motion ? 0.5 + 0.5 * Math.sin(o.time / 950) : 0.5
         ctx.beginPath()
-        roundRect(ctx, x - 4.5, y - 4.5, w + 9, h + 9, r + 4)
-        ctx.strokeStyle = tierColor
-        ctx.globalAlpha = alpha * 0.8
-        ctx.lineWidth = 1.2 / cam.k
-        ctx.setLineDash([3 / cam.k, 3 / cam.k])
+        roundRect(ctx, x - 3.5, y - 3.5, w + 7, h + 7, r + 3.5)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = alpha * (0.16 + 0.14 * phase)
+        ctx.lineWidth = 2 / cam.k
+        ctx.stroke()
+        ctx.beginPath()
+        roundRect(ctx, x - 7, y - 7, w + 14, h + 14, r + 7)
+        ctx.globalAlpha = alpha * 0.5
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
+        ctx.setLineDash([4 / cam.k, 5 / cam.k])
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
         ctx.stroke()
         ctx.setLineDash([])
+        ctx.lineDashOffset = 0
         ctx.globalAlpha = alpha
       }
 
@@ -1438,16 +1469,82 @@ export function paint(o: PaintOptions) {
         ctx.stroke()
         ctx.globalAlpha = alpha
       }
+
+      if (n.status === 'reviewing') {
+        // The force-map diamond gets the same calm review frame as the pill:
+        // a breathing halo plus a slow dashed orbit.
+        const phase = o.motion ? 0.5 + 0.5 * Math.sin(o.time / 950) : 0.5
+        ctx.save()
+        ctx.translate(n.x, n.y)
+        ctx.rotate(Math.PI / 4)
+        const inner = r * 0.72 + 4
+        ctx.beginPath()
+        roundRect(ctx, -inner, -inner, 2 * inner, 2 * inner, 3)
+        ctx.strokeStyle = color
+        ctx.globalAlpha = alpha * (0.16 + 0.14 * phase)
+        ctx.lineWidth = 2 / cam.k
+        ctx.stroke()
+        const outer = inner + 3
+        ctx.beginPath()
+        roundRect(ctx, -outer, -outer, 2 * outer, 2 * outer, 3)
+        ctx.globalAlpha = alpha * 0.5
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
+        ctx.setLineDash([4 / cam.k, 5 / cam.k])
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
+        ctx.stroke()
+        ctx.restore()
+        // restore() also put the dash pattern and alpha back.
+        ctx.globalAlpha = alpha
+      }
+
+      // Tier ring: the force map has no model-name line on the glyph, so the
+      // dashed outer ring is the only place the direction's tier shows. (The
+      // chain-tree pill writes the actual model on its second line instead.)
+      // Running/reviewing already own the outer ring; stacking the tier ring
+      // there would read as a second status.
+      const tierColor = n.tier ? TIER_COLORS[n.tier] : undefined
+      if (tierColor && n.status !== 'running' && n.status !== 'reviewing') {
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, 10.5, 0, TAU)
+        ctx.strokeStyle = tierColor
+        ctx.globalAlpha = alpha * 0.85
+        ctx.lineWidth = 1.2 / cam.k
+        ctx.setLineDash([3 / cam.k, 3 / cam.k])
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.globalAlpha = alpha
+      }
     } else if (n.type === 'ghost') {
       // The un-produced end of an intent step: a small pulsing ring, never a
       // pill. It disappears when the fact node replaces it.
-      const pulse = n.status === 'running' && o.motion ? 0.55 + 0.45 * Math.sin(o.time / 320) : 0.7
+      const reviewing = n.status === 'reviewing'
+      const pulse = reviewing
+        ? o.motion
+          ? 0.6 + 0.4 * Math.sin(o.time / 950)
+          : 0.7
+        : n.status === 'running' && o.motion
+          ? 0.55 + 0.45 * Math.sin(o.time / 320)
+          : 0.7
       ctx.beginPath()
       ctx.arc(n.x, n.y, 7, 0, TAU)
       ctx.strokeStyle = color
       ctx.lineWidth = 1.6 / cam.k
       ctx.globalAlpha = alpha * pulse
       ctx.stroke()
+      if (reviewing) {
+        // A reviewing direction with nothing produced yet: the same slow dashed
+        // frame as a step, so "waiting for the reviewer" is visible at a glance.
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, 13, 0, TAU)
+        ctx.globalAlpha = alpha * 0.5
+        ctx.lineWidth = 1 / Math.max(cam.k, 0.5)
+        ctx.setLineDash([4 / cam.k, 5 / cam.k])
+        ctx.lineDashOffset = o.motion ? -((o.time / 260) % 9) / Math.max(cam.k, 0.5) : 0
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.lineDashOffset = 0
+        ctx.globalAlpha = alpha
+      }
       // The ghost only marks "no produced fact yet"; the step pill already names
       // the model, so the force-map tier ring has nothing to add here.
       const tierColor = n.tier && !o.layered ? TIER_COLORS[n.tier] : undefined

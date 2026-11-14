@@ -33,7 +33,9 @@ import {
   type QuadNode,
   type Quadtree,
 } from '../src/graph/quadtree.ts'
+import { buildGraph, stepID } from '../src/graph/model.ts'
 import type { GraphEdge, GraphModel, GraphNode } from '../src/graph/model.ts'
+import type { Fact, Intent } from '../src/lib/types.ts'
 
 // A deterministic scatter: tests must not depend on Math.random's output, and a
 // failing assertion should reproduce byte for byte.
@@ -525,5 +527,111 @@ test('a warm on a layered simulation only relaxes the tree springs', () => {
     nodes.map((n, i) => (n.x === before[i].x && n.y === before[i].y ? 'same' : 'moved')),
     ['same', 'same'],
     'no repulsion in layered mode: settled anchors mean no motion',
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Chain-tree placement: the hop a step is drawn on, and manually dropped nodes
+// ---------------------------------------------------------------------------
+
+function chainFact(id: string, intentID: string, created: string): Fact {
+  return {
+    id,
+    intent_id: intentID,
+    kind: 'host',
+    title: id,
+    summary: '',
+    confidence: 'observed',
+    status: 'verified',
+    claim_version: 1,
+    created_at: created,
+  }
+}
+
+function chainIntent(id: string, created: string, from: string[] = []): Intent {
+  return {
+    id,
+    title: id,
+    description: '',
+    status: 'done',
+    attempts: 1,
+    created_at: created,
+    updated_at: created,
+    from_fact_ids: from,
+  }
+}
+
+/**
+ * in_probe(1) → f_inject/f_swagger(2) → in_dig(3) → f_cred(4) → in_waits(5).
+ * `in_waits` lists the shallow premise first, exactly as the ledger does; its
+ * hop is still the last premise's hop + 1, not the first one's.
+ */
+function chainModel(): GraphModel {
+  return buildGraph(
+    [
+      chainFact('f_inject', 'in_probe', '2026-11-11T00:00:01Z'),
+      chainFact('f_swagger', 'in_probe', '2026-11-11T00:00:02Z'),
+      chainFact('f_cred', 'in_dig', '2026-11-11T00:00:04Z'),
+    ],
+    [
+      chainIntent('in_probe', '2026-11-11T00:00:01Z'),
+      chainIntent('in_dig', '2026-11-11T00:00:02Z', ['f_inject']),
+      chainIntent('in_waits', '2026-11-11T00:00:03Z', ['f_inject', 'f_cred']),
+    ],
+    [],
+  )
+}
+
+test('a step is drawn after its deepest premise, not its first one', () => {
+  const graph = chainModel()
+  assert.equal(graph.byId.get(stepID('in_dig'))?.depth, 3)
+  assert.equal(graph.byId.get('f:f_cred')?.depth, 4)
+  assert.equal(graph.byId.get(stepID('in_waits'))?.depth, 5, 'the model already called this hop 5')
+
+  const sim = new ForceSim(graph, { mode: 'layered' })
+  const columnOf = (id: string): number | undefined => {
+    const node = graph.byId.get(id)
+    if (!node) return undefined
+    return sim.depthBands.find((band) => node.x >= band.x1 && node.x <= band.x2)?.depth
+  }
+  assert.equal(columnOf('f:f_inject'), 2)
+  assert.equal(columnOf('f:f_cred'), 4)
+  // The first premise (hop 2) used to own the step's column, drawing the
+  // direction at 第 3 跳 beside work it was still waiting for.
+  assert.equal(columnOf(stepID('in_waits')), 5)
+  assert.equal(columnOf(stepID('in_waits')), graph.byId.get(stepID('in_waits'))?.depth)
+})
+
+test('a dropped node holds its place until the explicit re-layout', () => {
+  const graph = chainModel()
+  const sim = new ForceSim(graph, { mode: 'layered' })
+  const first = graph.byId.get(stepID('in_dig'))!
+  const second = graph.byId.get(stepID('in_waits'))!
+  const firstHome = { x: first.x, y: first.y }
+  const secondHome = { x: second.x, y: second.y }
+  const firstDrop = { x: first.x + 40, y: first.y - 90 }
+  const secondDrop = { x: second.x, y: second.y + 120 }
+
+  // The operator drops `first`, then drags `second`. The old anchors sprang the
+  // first node back while the second one moved.
+  sim.holdAt(first.id, firstDrop.x, firstDrop.y)
+  sim.holdAt(second.id, secondDrop.x, secondDrop.y)
+  sim.reheat(1)
+  for (let i = 0; i < 120; i++) sim.tick()
+  assert.deepEqual({ x: first.x, y: first.y }, firstDrop, 'the first drop is not reset')
+  assert.deepEqual({ x: second.x, y: second.y }, secondDrop, 'the second drop sticks')
+
+  // 重新布局 is the one action that discards the drops. It rebuilds the slots
+  // and lets the springs carry the nodes home.
+  sim.relayout()
+  for (let i = 0; i < 400; i++) sim.tick()
+  assert.ok(Math.abs(first.x - firstHome.x) < 0.1 && Math.abs(first.y - firstHome.y) < 0.1)
+  assert.ok(Math.abs(second.x - secondHome.x) < 0.1 && Math.abs(second.y - secondHome.y) < 0.1)
+  const bands = sim.depthBands.map((band) => ({ ...band }))
+  sim.tick()
+  assert.deepEqual(
+    sim.depthBands.map((band) => ({ ...band })),
+    bands,
+    're-layout rebuilt the columns once, not appended duplicates',
   )
 })

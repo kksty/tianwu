@@ -38,7 +38,8 @@ export interface GraphToolbarProps {
   onToggleFocusOverlay: () => void
   onZoom: (factor: number) => void
   onFit: () => void
-  onReheat: () => void
+  /** Discard manual node drops and restore the computed layout. */
+  onRelayout: () => void
 }
 
 export function GraphToolbar({
@@ -55,7 +56,7 @@ export function GraphToolbar({
   onToggleFocusOverlay,
   onZoom,
   onFit,
-  onReheat,
+  onRelayout,
 }: GraphToolbarProps) {
   // One icon size (h-4) and one button size (icon-sm, 32px) across the row; the
   // pressed state comes from `active`, so a switch that is on cannot be mistaken
@@ -93,7 +94,13 @@ export function GraphToolbar({
       >
         <Maximize2 className="h-4 w-4" />
       </Button>
-      <Button size="icon-sm" variant="ghost" title="重新布局" aria-label="重新布局" onClick={onReheat}>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        title="重新布局：按依赖重新排列，并清除手动拖动的节点位置"
+        aria-label="重新布局"
+        onClick={onRelayout}
+      >
         <RotateCcw className="h-4 w-4" />
       </Button>
       {divider}

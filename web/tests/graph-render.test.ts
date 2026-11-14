@@ -11,6 +11,7 @@ import {
   BoxGrid,
   CANVAS,
   EDGE_COLORS,
+  FACT_COLORS,
   GeometryCache,
   INTENT_COLORS,
   LOD_SHAPES_K,
@@ -24,6 +25,7 @@ import {
   isEdgeVisible,
   isNodeVisible,
   lod,
+  nodeColor,
   viewportOf,
   wrapText,
 } from '../src/graph/render.ts'
@@ -350,15 +352,17 @@ test('wrapText keeps Latin words whole, breaks CJK, caps lines and ellipsises', 
 // --- relation encoding ---------------------------------------------------
 //
 // edgeStyle is the one contract the painter and the legend describe: solid blue
-// is the hard gate, a blocked gate is dashed red, and a reviewing direction's
-// produced-fact edge is dashed so a solid blue line can only mean one thing.
-// These are pure assertions on that contract; `paint` calls the same function.
+// is the hard gate, a blocked gate is dotted red, and a reviewing direction's
+// produced-fact edge is dashed and teal so a solid blue line can only mean one
+// thing. These are pure assertions on that contract; `paint` calls the same
+// function and the painter picks the exact dash pattern (dotted for a blocked
+// gate, long dashes for live execution).
 
 function relation(over: Partial<GraphEdge> = {}): GraphEdge {
   return { id: 'e', source: 'f:x', target: 's:in_x', kind: 'premise', ...over }
 }
 
-test('a blocked premise is drawn dashed, in the blocked colour, not the live-execution red', () => {
+test('a blocked premise belongs to the non-solid family and keeps the blocked colour', () => {
   const style = edgeStyle(relation({ blocked: true }))
   assert.equal(style.dashed, true, 'a blocked gate must not be a solid line')
   assert.equal(style.color, EDGE_COLORS.premiseBlocked)
@@ -372,10 +376,16 @@ test('a normal (satisfied) premise stays the solid hard-gate blue', () => {
   assert.equal(style.color, EDGE_COLORS.premise)
 })
 
-test('a reviewing intent edge is dashed so solid blue keeps one meaning', () => {
+test('a reviewing intent has its own verification hue and a dashed edge', () => {
   const reviewing = edgeStyle(relation({ kind: 'intent', status: 'reviewing' }))
   assert.equal(reviewing.dashed, true)
   assert.equal(reviewing.color, INTENT_COLORS.reviewing)
+  assert.equal(INTENT_COLORS.reviewing, CANVAS.review)
+  // The whole point: "复核中" must not read as a necessary-premise gate, and it
+  // must not read as a finished (green) direction either.
+  assert.notEqual(INTENT_COLORS.reviewing, EDGE_COLORS.premise)
+  assert.notEqual(INTENT_COLORS.reviewing, INTENT_COLORS.done)
+  assert.notEqual(INTENT_COLORS.reviewing, CANVAS.info)
   // Running uses marching dashes painted from the live animation, not the
   // static dashed family; its colour is the one red in the picture.
   const running = edgeStyle(relation({ kind: 'intent', status: 'running' }))
@@ -383,8 +393,97 @@ test('a reviewing intent edge is dashed so solid blue keeps one meaning', () => 
   assert.equal(running.color, INTENT_COLORS.running)
 })
 
+test('a step in review is not coloured like the premise gate', () => {
+  const node: GraphNode = {
+    id: 's:in_review',
+    type: 'step',
+    label: '等待复核的方向',
+    status: 'reviewing',
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    degree: 2,
+    w: 40,
+    h: 10,
+    depth: 3,
+  }
+  // nodeColor is the painter's single choice; the legend imports the same table.
+  assert.equal(nodeColor(node), INTENT_COLORS.reviewing)
+  assert.notEqual(nodeColor(node), EDGE_COLORS.premise)
+})
+
 test('the blocked flag only dashes the premise it belongs to', () => {
   const done = edgeStyle(relation({ kind: 'intent', status: 'done', blocked: true }))
   assert.equal(done.dashed, false, 'a blocked flag must not leak into another relation')
   assert.equal(done.color, INTENT_COLORS.done)
+})
+
+test('every intent status has a colour; pre-run states share amber and review_failed is not claimed', () => {
+  const statuses = [
+    'pending',
+    'claimed',
+    'waiting',
+    'running',
+    'reviewing',
+    'done',
+    'failed',
+    'review_failed',
+    'parked',
+  ]
+  for (const status of statuses) {
+    assert.ok(INTENT_COLORS[status], `${status} must have a graph colour`)
+  }
+  // Claiming and waiting for a child are both "not executing yet"; the panel
+  // labels separate them, but the graph deliberately keeps them in one family.
+  assert.equal(INTENT_COLORS.claimed, INTENT_COLORS.pending)
+  assert.equal(INTENT_COLORS.waiting, INTENT_COLORS.pending)
+  // The old map painted claimed and review_failed with the same orange; a
+  // rejected review must not look like a direction that just got claimed.
+  assert.notEqual(INTENT_COLORS.review_failed, INTENT_COLORS.claimed)
+  assert.notEqual(INTENT_COLORS.review_failed, INTENT_COLORS.pending)
+})
+
+test('a waiting direction is amber, not the parked grey', () => {
+  const node: GraphNode = {
+    id: 's:in_wait',
+    type: 'step',
+    label: '等待子任务',
+    status: 'waiting',
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    degree: 2,
+    w: 40,
+    h: 10,
+    depth: 3,
+  }
+  assert.equal(nodeColor(node), INTENT_COLORS.waiting)
+  assert.notEqual(nodeColor(node), INTENT_COLORS.parked)
+})
+
+test('pre-run and waiting intent edges are dashed, not solid', () => {
+  for (const status of ['pending', 'claimed', 'waiting'] as const) {
+    assert.equal(edgeStyle(relation({ kind: 'intent', status })).dashed, true, status)
+  }
+  // Terminal states keep a solid produced edge.
+  assert.equal(edgeStyle(relation({ kind: 'intent', status: 'done' })).dashed, false)
+  assert.equal(edgeStyle(relation({ kind: 'intent', status: 'review_failed' })).dashed, false)
+})
+
+test('no accidental duplicate colour inside one channel', () => {
+  // Fact kinds are one channel: seven kinds, seven hues.
+  const factColors = Object.values(FACT_COLORS)
+  assert.equal(new Set(factColors).size, factColors.length, 'two fact kinds share a colour')
+  // Relations are one channel: each relation keeps its own stroke (the alpha
+  // variants are deliberate, but the literal values must stay distinct).
+  const edgeColors = Object.values(EDGE_COLORS)
+  assert.equal(new Set(edgeColors).size, edgeColors.length, 'two relations share a colour')
+  // Intent families: the three pre-run states are one deliberate amber family;
+  // every other status is its own hue.
+  const families = ['pending', 'running', 'reviewing', 'done', 'failed', 'review_failed', 'parked'].map(
+    (status) => INTENT_COLORS[status],
+  )
+  assert.equal(new Set(families).size, families.length, 'two intent families share a colour')
 })

@@ -22,7 +22,8 @@ import {
 
 export interface GraphControls {
   fit: () => void
-  reheat: () => void
+  /** Restore the computed layout, discarding manually dropped nodes. */
+  relayout: () => void
   zoom: (factor: number) => void
   /** Centre the camera on a graph-space point (minimap click/drag). */
   centerOn: (x: number, y: number) => void
@@ -130,6 +131,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   // Arrow-key focus node; drawn as a ring by the renderer, never a React state.
   const keyboardFocusRef = useRef<string | null>(null)
   const dragRef = useRef<DragState>(NO_DRAG)
+  // Nodes the operator dragged off the chain tree: id → dropped graph position.
+  // The layered tick springs back to anchors, and every poll rebuilds the sim
+  // from the deterministic layout, so a drop has to be re-applied to each new
+  // sim. Only 重新布局 (or a layout switch) clears it.
+  const manualRef = useRef(new Map<string, { x: number; y: number }>())
   const stateRef = useRef({ selected, matches, showLabels, focusLayer })
   stateRef.current = { selected, matches, showLabels, focusLayer }
 
@@ -160,6 +166,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   const indexRef = useRef<{ sim: ForceSim; index: GraphIndex } | null>(null)
   // Cached "does this sim have a running edge" flag; edges are fixed per sim.
   const breathingRef = useRef<{ sim: ForceSim | null; value: boolean }>({ sim: null, value: false })
+  // Cached "does this sim have a direction in review" flag; the verification
+  // frame is time-based, so the frame loop has to stay alive for it.
+  const reviewingRef = useRef<{ sim: ForceSim | null; value: boolean }>({ sim: null, value: false })
   // Keyboard traversal order for the current sim (depth, y, x): deterministic.
   const keyboardOrderRef = useRef<{ sim: ForceSim | null; nodes: GraphNode[] }>({ sim: null, nodes: [] })
 
@@ -178,6 +187,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
   useEffect(() => {
     const prev = simRef.current
     const prevNodes = prev && prev.mode === layout ? prev.nodes : null
+    // Picking another layout is an explicit re-lay: manual drops belong to the
+    // picture they were made on, not to the new one.
+    if (prev && prev.mode !== layout) manualRef.current.clear()
     measureNodes(model)
     // The chain-tree view derives every x/y from the model (placeLayered), so a
     // poll has to rebuild its anchors instead of pinning yesterday's coordinates
@@ -198,6 +210,13 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
           n.vx = 0
           n.vy = 0
         }
+      }
+    }
+    // A poll rebuilds the chain tree from scratch; put the operator's drops back
+    // on top of it so a refresh does not silently undo their arrangement.
+    if (layout === 'layered') {
+      for (const [id, at] of manualRef.current) {
+        if (model.byId.has(id)) sim.holdAt(id, at.x, at.y)
       }
     }
     // Only nodes this poll introduced have to be pulled into place; everything
@@ -225,6 +244,7 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     invalidateIndex()
     derivedRef.current = { sim: null, byId: new Map(), focusID: undefined, focus: null }
     breathingRef.current = { sim: null, value: false }
+    reviewingRef.current = { sim: null, value: false }
     keyboardOrderRef.current = { sim: null, nodes: [] }
 
     // Settle the layout before the first paint: a background tab may never get
@@ -431,11 +451,30 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     return value
   }
 
+  /** Does this layout contain a direction waiting on independent review? The
+   *  canvas paints a slow verification frame for it, which needs frames even
+   *  when the tree itself is settled. */
+  function hasReviewingNode(sim: ForceSim): boolean {
+    const cached = reviewingRef.current
+    if (cached.sim === sim) return cached.value
+    const value = sim.nodes.some((n) => n.status === 'reviewing')
+    reviewingRef.current = { sim, value }
+    return value
+  }
+
   /** Which time-based animations are currently running (reduced motion: none). */
-  function animations(now: number): { breathing: boolean; rippling: boolean } {
+  function animations(now: number): {
+    breathing: boolean
+    reviewing: boolean
+    rippling: boolean
+  } {
     const sim = simRef.current
-    if (!sim || !motionRef.current) return { breathing: false, rippling: false }
-    return { breathing: hasRunningEdge(sim), rippling: now < rippleUntilRef.current }
+    if (!sim || !motionRef.current) return { breathing: false, reviewing: false, rippling: false }
+    return {
+      breathing: hasRunningEdge(sim),
+      reviewing: hasReviewingNode(sim),
+      rippling: now < rippleUntilRef.current,
+    }
   }
 
   /**
@@ -532,9 +571,9 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     const sim = simRef.current
     if (!sim) return
     const now = performance.now()
-    const { breathing, rippling } = animations(now)
+    const { breathing, reviewing, rippling } = animations(now)
     const dragging = dragRef.current.mode === 'node'
-    if (!sim.running && !dragging && !breathing && !rippling) {
+    if (!sim.running && !dragging && !breathing && !reviewing && !rippling) {
       paintOnce()
       return
     }
@@ -739,8 +778,11 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
 
   useImperativeHandle(ref, () => ({
     fit,
-    reheat: () => {
-      simRef.current?.reheat(1)
+    relayout: () => {
+      // Explicit 重新布局: the operator asks for the computed tree again, so the
+      // manual drops are discarded rather than springs that now point at them.
+      manualRef.current.clear()
+      simRef.current?.relayout()
       start()
     },
     zoom: (factor: number) => {
@@ -1029,6 +1071,16 @@ export const GraphCanvas = forwardRef<GraphControls, Props>(function GraphCanvas
     }
     if (d.mode === 'node' && d.id && !d.moved) {
       onSelect(d.id === stateRef.current.selected ? null : d.id)
+    }
+    if (d.mode === 'node' && d.id && d.moved) {
+      // A drop is the operator placing the node: hold it there instead of letting
+      // the layered spring (or the next poll) reset it.
+      const sim = simRef.current
+      const node = sim ? indexOf(sim).get(d.id) : undefined
+      if (sim && node && sim.mode === 'layered') {
+        sim.holdAt(d.id, node.x, node.y)
+        manualRef.current.set(d.id, { x: node.x, y: node.y })
+      }
     }
     paintOnce()
   }

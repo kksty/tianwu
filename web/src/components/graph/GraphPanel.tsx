@@ -496,7 +496,7 @@ export function GraphPanel({
         onToggleFocusOverlay={() => setFocusOverlay((value) => !value)}
         onZoom={(factor) => canvas.current?.zoom(factor)}
         onFit={() => canvas.current?.fit()}
-        onReheat={() => canvas.current?.reheat()}
+        onRelayout={() => canvas.current?.relayout()}
       />
 
       {/* legend + live commander card: the bottom-left corner is "what does the
@@ -539,7 +539,7 @@ export function GraphPanel({
       <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full border border-hairline bg-card/90 px-3 py-1.5 text-[11px] text-ink-3 shadow-soft backdrop-blur">
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-            running > 0 ? 'animate-pulse bg-info' : live ? 'bg-success' : 'bg-ink-3'
+            running > 0 ? 'animate-pulse bg-primary' : live ? 'bg-success' : 'bg-ink-3'
           }`}
         />
         <span>

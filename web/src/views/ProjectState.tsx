@@ -611,7 +611,7 @@ function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onCli
             前提不成立（{frontier?.blocked_on?.length ?? 0}）
           </span>
         ) : intent.status === 'reviewing' ? (
-          <span className="min-w-0 flex-1 truncate text-info">固定复核中；通过后才完成</span>
+          <span className="min-w-0 flex-1 truncate text-review">固定复核中；通过后才完成</span>
         ) : intent.status === 'review_failed' ? (
           <span className="min-w-0 flex-1 truncate text-destructive">复核未通过，可原地重试/续跑</span>
         ) : intent.status === 'failed' ? (
@@ -1607,19 +1607,21 @@ function intentStateLabel(intent: Intent): string {
 /** The one-line state chip on a roster row: small area, semantic tint only. */
 function stateTint(intent: Intent): string {
   if (intent.status === 'failed' || intent.status === 'review_failed') return 'bg-destructive/10 text-destructive'
-  if (intent.status === 'reviewing') return 'bg-info/10 text-info'
+  if (intent.status === 'reviewing') return 'bg-review/10 text-review'
   if (intent.status === 'waiting') return 'bg-warning/10 text-warning'
-  if (intent.status === 'running' || intent.status === 'claimed') return 'bg-info/10 text-info'
   if (intent.hold) return 'bg-caution/10 text-caution'
+  if (intent.status === 'claimed' || intent.status === 'pending') return 'bg-warning/10 text-warning'
+  if (intent.status === 'running') return 'bg-info/10 text-info'
   if (intent.status === 'done') return 'text-ink-3'
   if (intent.status === 'parked') return 'bg-surface-2 text-ink-3'
   return 'bg-surface-2 text-ink-3'
 }
 
 function stateDot(intent: Intent): string {
-  if (intent.status === 'claimed') return 'animate-pulse bg-info'
+  if (intent.status === 'claimed') return 'bg-warning'
   if (intent.status === 'running') return 'animate-pulse bg-success'
-  if (intent.status === 'reviewing') return 'animate-pulse bg-info'
+  if (intent.status === 'reviewing') return 'animate-pulse bg-review'
+  if (intent.status === 'pending') return intent.hold ? 'bg-caution' : 'bg-warning'
   switch (intent.status) {
     case 'done':
       return 'bg-ink-3/40'

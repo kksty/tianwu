@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Badge } from '@cyber/ui'
 import { DOCK_DEFAULT_WIDTH } from '@/components/graph/dock-width'
+import { intentStatusDot } from '@/graph/status'
 import { edgeKindLabel, type GraphEdge, type GraphNode } from '@/graph/model'
 import { fmtInt, fmtTime, kindVariant, statusKind, statusLabel } from '@/lib/format'
 import type { RunPulse } from '@/lib/types'
@@ -156,6 +157,10 @@ export function GraphInspector({
   const intent = node?.meta?.intent ?? edge?.intent
   const edgeInfo = edge ? edgeBadge(edge.kind) : null
   const status = node?.status ?? edge?.status ?? intent?.status
+  // Intent statuses use the themed graph status vocabulary (running red,
+  // reviewing teal, pending amber, …); a fact's verified/unverified status
+  // keeps the shared success/error/idle chip palette.
+  const intentDot = status ? intentStatusDot(status) : undefined
   // A boundary leaf is a reference marker, not a fact/intent row: it gets its
   // own title, badge and explanation instead of the generic node metadata.
   const isBoundary = node?.type === 'boundary'
@@ -206,15 +211,17 @@ export function GraphInspector({
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                statusKind(status) === 'success'
-                  ? 'bg-success'
-                  : statusKind(status) === 'error'
-                    ? 'bg-destructive'
-                    : statusKind(status) === 'running'
-                      ? 'animate-pulse bg-info'
-                      : statusKind(status) === 'warning'
-                        ? 'bg-warning'
-                        : 'bg-ink-3'
+                intentDot
+                  ? `${intentDot} ${status === 'running' || status === 'reviewing' ? 'animate-pulse' : ''}`
+                  : statusKind(status) === 'success'
+                    ? 'bg-success'
+                    : statusKind(status) === 'error'
+                      ? 'bg-destructive'
+                      : statusKind(status) === 'running'
+                        ? 'animate-pulse bg-info'
+                        : statusKind(status) === 'warning'
+                          ? 'bg-warning'
+                          : 'bg-ink-3'
               }`}
             />
             {statusText(status)}
