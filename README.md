@@ -4,9 +4,36 @@
 
 天吴负责项目管理、任务调度、状态账本和人工监督；[cyber-harness](https://github.com/kksty/cyber-harness/tree/tianwu/fixes) 提供模型会话、原生工具与执行宿主。控制台可查看任务依赖、运行过程、模型用量、证据和报告，也可以暂停项目、追加目标或接管需要人工处理的事项。
 
-[快速开始](#快速开始) · [核心架构](docs/01-architecture.md) · [贡献指南](CONTRIBUTING.md) · [安全策略](SECURITY.md) · [免责声明](#免责声明) · [许可证](LICENSE)
+[快速开始](#快速开始) · [界面](#界面) · [核心架构](docs/01-architecture.md) · [贡献指南](CONTRIBUTING.md) · [安全策略](SECURITY.md) · [免责声明](#免责声明) · [许可证](LICENSE)
 
 > 当前为 0.x 预发布，面向单机、单用户使用。接口与数据格式仍可能调整。仅可用于已获明确授权的环境；请先阅读安全策略，并为每个项目写清测试范围和禁止事项。
+
+## 界面
+
+天吴把同一份账本投影成图谱、焦点和运行视图。以下截图由离线 fixture 生成，使用合成目标和数据，**不含真实项目目标、凭据或运行记录**。
+
+<p align="center">
+  <img src="docs/screenshots/graph.png" alt="图谱：链路树、状态颜色与关系图例" />
+</p>
+
+<p align="center"><em>图谱：一条方向从必要前提走到产出事实。青色 + 缓慢呼吸框表示固定复核中；蓝色实线只表示必要前提。</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/focus.png" alt="焦点投影：热/温/冷事实索引" />
+</p>
+
+<p align="center"><em>焦点投影：把本轮相关事实分成热/温/冷三层，带断言版本、记录版本和来源 run，便于按 id 续读。</em></p>
+
+<details>
+<summary>大规模合成 fixture（100 条方向、1,000 条事实）</summary>
+
+<p align="center">
+  <img src="docs/screenshots/graph-large.png" alt="大规模合成 fixture：1100 个节点" />
+</p>
+
+<p align="center"><em>仅用于展示布局、着色和渲染规模；数据为合成 fixture，不是真实项目。</em></p>
+
+</details>
 
 ## 核心能力
 
@@ -118,6 +145,7 @@ node scripts/check-docs.mjs
 维护资料：
 
 - [核心架构](docs/01-architecture.md)：角色、数据、调度和验证边界。
+- [界面截图](docs/screenshots/)：由 `scripts/acceptance` 的离线 fixture 生成，使用合成数据和目标，不含真实项目内容。
 - [贡献指南](CONTRIBUTING.md)与[实现约定](agent.md)：开发环境、测试和变更原则。
 - [验收脚本说明](scripts/acceptance/README.md)：离线界面检查与隔离集成验证。
 - [知识卡维护](internal/kb/assets/README.md)与[条目格式](internal/kb/assets/entries/README.md)。
