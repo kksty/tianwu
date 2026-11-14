@@ -1735,12 +1735,44 @@ func (s *Server) ParkIntent(id, reason string) (model.Intent, error) {
 	if in.Status == model.StatusRunning || in.Status == model.StatusClaimed {
 		return model.Intent{}, errors.New("意图正在运行：先 cancel，等它回到 pending，再 park")
 	}
+	// Snapshot the premises that are not usable now. The park reason is prose
+	// and goes stale when a review later passes; this snapshot is the machine
+	// input for the "premise is ready now" notice and the commander attention.
+	blocked, claims := s.parkedBlockedPremises(in)
+	parkedAt := time.Now()
 	return s.Store.UpdateIntent(id, func(i *model.Intent) {
 		i.Status = model.StatusParked
 		i.ParkReason = reason
 		i.Hold = true
 		i.Wait = nil
+		i.ParkedPremiseFactIDs = blocked
+		i.ParkedPremiseClaims = claims
+		i.ParkedAt = &parkedAt
 	})
+}
+
+// parkedBlockedPremises is the park-time snapshot of unready hard premises.
+// It deliberately skips byte verification: the point is which assertions were
+// blocked, not re-hashing every original file on a park click. The dispatch
+// gate still performs the full readiness check before a run.
+func (s *Server) parkedBlockedPremises(in model.Intent) ([]string, map[string]uint64) {
+	if s.Store == nil || len(in.FromFactIDs) == 0 {
+		return nil, nil
+	}
+	ready := s.readiness(s.Store.Snapshot(), in, s.premisePolicy(), false)
+	var ids []string
+	claims := map[string]uint64{}
+	for _, p := range ready.Premises {
+		if p.Usable {
+			continue
+		}
+		ids = append(ids, p.ID)
+		claims[p.ID] = p.ClaimVersion
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return ids, claims
 }
 
 func (s *Server) reopenIntent(w http.ResponseWriter, r *http.Request) {
@@ -1997,6 +2029,12 @@ func (s *Server) retryIntentRunProfile(id, note string, resume bool, profileOver
 		i.Status = model.StatusPending
 		i.Hold = true // Reserve preparation for this explicit retry, not the pump.
 		i.ClaimedBy = ""
+		// A retry is a fresh judgement; the old park snapshot is no longer a
+		// statement about this attempt.
+		i.ParkReason = ""
+		i.ParkedPremiseFactIDs = nil
+		i.ParkedPremiseClaims = nil
+		i.ParkedAt = nil
 	})
 	if err != nil {
 		return "", 0, err

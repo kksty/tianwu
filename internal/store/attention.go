@@ -90,6 +90,10 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 	for _, in := range s.db.Intents {
 		intents[in.ID] = in
 	}
+	facts := make(map[string]model.Fact, len(s.db.Facts))
+	for _, f := range s.db.Facts {
+		facts[f.ID] = f
+	}
 	reasons := map[string]AttentionReason{}
 	var routing *routeIndex
 	live := []model.Intent{}
@@ -142,6 +146,26 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 			}
 		case "fact":
 			f := r.value.(model.Fact)
+			// A review (or a corrected assertion) can clear the exact blocker a
+			// parked direction recorded. Signal it once here, before the
+			// local-consumption branches below: the premise may have been produced
+			// by a direction that is still running, and that must not swallow the
+			// parked direction's notice.
+			if f.Status == "verified" {
+				for _, parked := range s.db.Intents {
+					if parked.Status != model.StatusParked || !hasID(parked.ParkedPremiseFactIDs, f.ID) {
+						continue
+					}
+					if !parkedPremiseReady(parked, facts, s.db.Reviews) {
+						continue
+					}
+					reasons["parked:"+parked.ID] = AttentionReason{
+						Code: "parked_premise_ready", Kind: "intent", ID: parked.ID, IntentID: parked.ID,
+						Seq: c.Seq, Version: c.Version,
+						Detail: "停放方向的前提已复核通过，可重开或确认合并",
+					}
+				}
+			}
 			for _, g := range s.db.Goals {
 				if g.Met && hasID(g.From, f.ID) && markGoalReceipt(g, s.db.Facts).ReceiptStale {
 					add("goal:"+g.ID, c, "goal_support_changed", "完成证明的依据变化，需要重新验收", f.IntentID)
@@ -205,6 +229,29 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 		return out.Reasons[i].Seq < out.Reasons[j].Seq
 	})
 	return out
+}
+
+// parkedPremiseReady reports whether every premise that blocked a parked
+// direction at park time is usable now. It uses the same assertion and proof
+// rules as the dispatch gate, without re-hashing original files: the signal is
+// "the blocker cleared", not a substitute for the final readiness check.
+func parkedPremiseReady(in model.Intent, facts map[string]model.Fact, reviews []model.Review) bool {
+	if len(in.ParkedPremiseFactIDs) == 0 {
+		return false
+	}
+	for _, id := range in.ParkedPremiseFactIDs {
+		f, ok := facts[id]
+		if !ok {
+			return false
+		}
+		if model.PremiseIssue(f, model.PremiseVerifiedOnly) != "" {
+			return false
+		}
+		if _, ok := model.CurrentProof(f, reviews); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func hasID(ids []string, want string) bool {

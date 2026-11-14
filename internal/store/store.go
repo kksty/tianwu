@@ -233,6 +233,9 @@ func (s *Store) ReopenIntent(id string) (model.Intent, error) {
 		}
 		in.Status = model.StatusPending
 		in.ParkReason = ""
+		in.ParkedPremiseFactIDs = nil
+		in.ParkedPremiseClaims = nil
+		in.ParkedAt = nil
 		in.Hold = false
 		in.UpdatedAt = time.Now()
 		return detachIntent(*in), s.flush("intent")

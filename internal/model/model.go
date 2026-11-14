@@ -228,11 +228,23 @@ type Intent struct {
 	// A retry must re-review these facts (or see them corrected) even when the
 	// new run declares nothing new; otherwise a bare re-run could flip
 	// review_failed to done without changing the rejected assertion.
-	ReviewFailedFacts []string  `json:"review_failed_facts,omitempty"`
-	ParkReason        string    `json:"park_reason,omitempty"`
-	RunID             string    `json:"run_id,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ReviewFailedFacts []string `json:"review_failed_facts,omitempty"`
+	ParkReason        string   `json:"park_reason,omitempty"`
+	// ParkedPremiseFactIDs is the snapshot of premises that were not usable when
+	// the direction was parked. It is empty for a park that was not premise-
+	// blocked. The control plane uses it to tell a stale park reason from a still
+	// blocked direction: when every recorded premise becomes usable, the parked
+	// direction gets a parked_premise_ready attention (and the console offers a
+	// reopen) instead of leaving the old prose in place forever.
+	ParkedPremiseFactIDs []string `json:"parked_premise_fact_ids,omitempty"`
+	// ParkedPremiseClaims records the claim version each blocked premise had at
+	// park time, so the notice can say the blocker actually changed rather than
+	// merely being re-read.
+	ParkedPremiseClaims map[string]uint64 `json:"parked_premise_claims,omitempty"`
+	ParkedAt            *time.Time        `json:"parked_at,omitempty"`
+	RunID               string            `json:"run_id,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
 // Wait is the persisted condition a direction yielded on. Evaluation, the

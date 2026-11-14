@@ -139,6 +139,18 @@ func detachIntent(in model.Intent) model.Intent {
 	in.PinnedFactIDs = append([]string(nil), in.PinnedFactIDs...)
 	in.InterestEntityRefs = append([]string(nil), in.InterestEntityRefs...)
 	in.FromFactIDs = append([]string(nil), in.FromFactIDs...)
+	in.ParkedPremiseFactIDs = append([]string(nil), in.ParkedPremiseFactIDs...)
+	if in.ParkedPremiseClaims != nil {
+		claims := make(map[string]uint64, len(in.ParkedPremiseClaims))
+		for id, version := range in.ParkedPremiseClaims {
+			claims[id] = version
+		}
+		in.ParkedPremiseClaims = claims
+	}
+	if in.ParkedAt != nil {
+		at := *in.ParkedAt
+		in.ParkedAt = &at
+	}
 	if in.FromFactClaims != nil {
 		claims := make(map[string]uint64, len(in.FromFactClaims))
 		for id, version := range in.FromFactClaims {

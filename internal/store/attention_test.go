@@ -2,11 +2,63 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kksty/tianwu/internal/collab"
 	"github.com/kksty/tianwu/internal/model"
 )
+
+// A parked direction whose recorded premise review later passes must raise a
+// durable global attention reason instead of leaving the old park prose as the
+// only record. This is the race that made two directions look contradictory:
+// the review passed 18s before the park was written.
+func TestParkedPremiseReadyRaisesAttention(t *testing.T) {
+	s := open(t)
+	e, err := s.AddEvidence(model.Evidence{
+		IntentID: "in_1", Name: "proof.txt", URI: "in_1/raw/proof.txt",
+		Digest: strings.Repeat("b", 64), Size: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "host", Title: "premise host",
+		Status: "unverified", ClaimVersion: 1, EvidenceIDs: []string{e.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := s.CreateIntent(model.Intent{Title: "parked direction", FromFactIDs: []string{f.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err = s.UpdateIntent(in.ID, func(i *model.Intent) {
+		i.Status = model.StatusParked
+		i.Hold = true
+		i.ParkedPremiseFactIDs = []string{f.ID}
+		i.ParkedPremiseClaims = map[string]uint64{f.ID: 1}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdvanceCommanderAttention(s.CommanderAttention().Through); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "r_verify"}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range s.CommanderAttention().Reasons {
+		if r.Code == "parked_premise_ready" && r.IntentID == in.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("parked premise readiness was not raised: %+v", s.CommanderAttention().Reasons)
+	}
+}
 
 func attentionTasks(t *testing.T) (*Store, model.Intent, model.Intent) {
 	t.Helper()

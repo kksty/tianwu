@@ -263,6 +263,13 @@ export interface Intent {
   notes?: IntentNote[]
   claimed_by?: string
   park_reason?: string
+  /** Premises that were unusable when the direction was parked. When every one
+   *  becomes usable the console shows "前提已就绪" and the commander gets a
+   *  parked_premise_ready attention instead of trusting the old prose. */
+  parked_premise_fact_ids?: string[]
+  /** Claim versions of those premises at park time. */
+  parked_premise_claims?: Record<string, number>
+  parked_at?: string
   run_id?: string
   /** Operator/commander stop: an auto-dispatch must not resurrect it (D19). */
   hold?: boolean

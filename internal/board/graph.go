@@ -99,7 +99,11 @@ type GraphIntent struct {
 	Run         string   `json:"run,omitempty"`
 	Attempts    int      `json:"attempts,omitempty"`
 	ParkReason  string   `json:"park_reason,omitempty"`
-	LastStop    string   `json:"last_stop,omitempty"`
+	// ParkedPremiseFactIDs mirrors the intent's park-time blocker snapshot. A
+	// parked node is the one place the console needs it without a second fetch:
+	// it is how the node panel knows to offer "前提已就绪，可重开".
+	ParkedPremiseFactIDs []string `json:"parked_premise_fact_ids,omitempty"`
+	LastStop             string   `json:"last_stop,omitempty"`
 }
 
 // GraphFact is one compact fact: the summary layer plus evidence URIs. The doc
@@ -368,6 +372,7 @@ func graphIntentOf(in model.Intent, runs map[string]model.Run) GraphIntent {
 		Attempts:    in.Attempts,
 		ParkReason:  graphClip(in.ParkReason, graphReasonRunes),
 	}
+	g.ParkedPremiseFactIDs = append([]string(nil), in.ParkedPremiseFactIDs...)
 	g.FromFacts = append([]string(nil), in.FromFactIDs...)
 	if r, ok := runs[in.RunID]; ok {
 		// The snapshot is read by the executor. Keep the structured state, not

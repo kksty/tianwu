@@ -313,6 +313,64 @@ func TestProjectResumeWithGoalIDAttachesOneShotScope(t *testing.T) {
 	}
 }
 
+// Parking snapshots the premises that were unready, so a later review pass can
+// be distinguished from the prose written at park time. Reopen clears the
+// snapshot: it describes that attempt, not the next one.
+func TestParkRecordsBlockedPremisesAndReopenClearsThem(t *testing.T) {
+	s, _ := newBindingServer(t)
+	e, err := s.Store.AddEvidence(model.Evidence{
+		IntentID: "in_1", Name: "proof.txt", URI: "in_1/raw/proof.txt",
+		Digest: strings.Repeat("a", 64), Size: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := s.Store.AddFact(model.Fact{
+		IntentID: "in_1", Kind: "host", Title: "36.103.230.85:443",
+		Status: "unverified", ClaimVersion: 1, EvidenceIDs: []string{e.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := s.Store.CreateIntent(model.Intent{Title: "park me", FromFactIDs: []string{f.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := call(t, s, http.MethodPost, "/api/intents/"+in.ID+"/park", map[string]any{"reason": "前提未复核"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("park = %d: %s", rec.Code, rec.Body.String())
+	}
+	var parked model.Intent
+	if err := json.Unmarshal(rec.Body.Bytes(), &parked); err != nil {
+		t.Fatal(err)
+	}
+	if len(parked.ParkedPremiseFactIDs) != 1 || parked.ParkedPremiseFactIDs[0] != f.ID {
+		t.Fatalf("parked premise ids = %v, want %s", parked.ParkedPremiseFactIDs, f.ID)
+	}
+	if got := parked.ParkedPremiseClaims[f.ID]; got != 1 {
+		t.Fatalf("parked claim version = %d, want 1", got)
+	}
+	if parked.ParkedAt == nil {
+		t.Fatal("park did not record its timestamp")
+	}
+
+	rec = call(t, s, http.MethodPost, "/api/intents/"+in.ID+"/reopen", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reopen = %d: %s", rec.Code, rec.Body.String())
+	}
+	var reopened model.Intent
+	if err := json.Unmarshal(rec.Body.Bytes(), &reopened); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Status != model.StatusPending {
+		t.Fatalf("reopened status = %s", reopened.Status)
+	}
+	if len(reopened.ParkedPremiseFactIDs) != 0 || len(reopened.ParkedPremiseClaims) != 0 || reopened.ParkedAt != nil {
+		t.Fatalf("reopen left the park snapshot behind: %+v", reopened)
+	}
+}
+
 // standbyRequest is the wire shape every standby case shares: the reason body is
 // optional to the handler, and the surface/declaration headers are added per
 // case.

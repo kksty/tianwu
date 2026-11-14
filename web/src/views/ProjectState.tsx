@@ -645,6 +645,39 @@ function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onCli
 // 选中意图: the order, its attempts, and the case of the selected attempt.
 // ---------------------------------------------------------------------------
 
+/** A parked direction can outlive the blocker its prose describes. The server
+ *  records which premises were unready at park time; once readiness flips to
+ *  true this banner offers the explicit reopen instead of a stale reason. */
+function ParkedPremiseNotice({ intent, onChanged }: { intent: Intent; onChanged?: () => void }) {
+  const active = intent.status === 'parked' && (intent.parked_premise_fact_ids?.length ?? 0) > 0
+  const readiness = usePoll(
+    () => (active ? api.intentReadiness(intent.id) : Promise.resolve(null)),
+    15000,
+    [intent.id, active],
+  )
+  const [opening, setOpening] = useState(false)
+  if (!active || !readiness.data?.ready) return null
+  async function reopen() {
+    setOpening(true)
+    try {
+      await api.reopenIntent(intent.id)
+      onChanged?.()
+    } finally {
+      setOpening(false)
+    }
+  }
+  return (
+    <Callout tone="info">
+      <div className="flex flex-wrap items-center gap-2">
+        <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他方向。</span>
+        <Button size="xs" variant="soft" onClick={reopen} disabled={opening}>
+          {opening ? '重开中…' : '重开'}
+        </Button>
+      </div>
+    </Callout>
+  )
+}
+
 function UnitDetail({
   unit,
   run,
@@ -797,6 +830,7 @@ function UnitDetail({
               停放原因：{intent.park_reason}
             </div>
           )}
+          <ParkedPremiseNotice intent={intent} onChanged={onRunsChanged} />
 
           <AttemptChain intent={intent} attempts={attempts} selectedRunID={run?.id ?? ''} onPickRun={onPickRun} />
 

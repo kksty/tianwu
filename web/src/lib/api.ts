@@ -469,7 +469,7 @@ export const api = {
     ),
   intentReadiness: (id: string) => get<{
     intent_id: string; policy: string; ready: boolean; integrity_checked?: boolean;
-    review_hint?: string;
+    review_hint?: string; self_reference_hint?: string;
     premises: { id: string; title?: string; claim_version?: number; status: string; usable: boolean; reason?: string; review_id?: string; verifier_run?: string; integrity: string; review?: { state: 'queued' | 'running' | 'cooling' | 'paused' | 'failed' | 'ineligible' | 'disabled' } }[]
   }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/readiness`),
   handoffIntent: (id: string, profile: string, note: string, expectedVersion: number) =>

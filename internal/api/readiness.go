@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/kksty/tianwu/internal/evidence"
@@ -55,6 +56,13 @@ type intentReadiness struct {
 	// states above. The session cannot trigger a review; the hint says so and
 	// tells it whether to wait or ask the operator.
 	ReviewHint string `json:"review_hint,omitempty"`
+	// SelfReferenceHint warns about a structural circularity: an unverified
+	// premise names the same entity this direction says it is interested in. A
+	// re-probe/verification direction then waits for a review that performs the
+	// same probe, and would repeat it when the review passes. It is advisory:
+	// the same shape is legitimate for a deeper direction that merely operates
+	// on that host, so the control plane must not block it.
+	SelfReferenceHint string `json:"self_reference_hint,omitempty"`
 }
 
 // Readiness explains the same rule dispatch enforces. Integrity is a separate
@@ -119,6 +127,16 @@ func (s *Server) readiness(db store.DB, in model.Intent, policy string, integrit
 			// waiting for a review cannot make this premise usable.
 			row.Review = &premiseReview{State: reviewStateIneligible}
 			reviewStates = append(reviewStates, row.Review.State)
+		}
+		// A verification/re-probe direction often names the same entity in
+		// interest_entity_refs as the unverified premise it waits on. The review
+		// then probes that entity and the direction would probe it again. This is
+		// a hint, not a block: a deeper direction may legitimately use a host fact
+		// as its premise while also naming that host as its subject.
+		if ok && row.Status == "unverified" && f.EntityRef != "" && slices.Contains(in.InterestEntityRefs, f.EntityRef) {
+			out.SelfReferenceHint = fmt.Sprintf(
+				"前提「%s」（%s）与本方向关注同一实体，且断言未核验；若本方向就是复探/验证该实体，复核与本方向会重复。建议改成无前提 bootstrap，或等复核结果直接收口，不要重复探测。",
+				row.Title, f.EntityRef)
 		}
 		out.Premises = append(out.Premises, row)
 	}

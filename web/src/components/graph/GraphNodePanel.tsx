@@ -355,6 +355,9 @@ function NodeWorkspace({
                 ))}
               </div>
               {readiness.data.review_hint && <div className="mt-2 text-[11px] text-ink-2">{readiness.data.review_hint}</div>}
+              {readiness.data.self_reference_hint && (
+                <div className="mt-2 text-[11px] text-warning">{readiness.data.self_reference_hint}</div>
+              )}
             </Callout>
           )}
           {readiness.error && <Callout tone="warning" className="leading-relaxed">暂时无法核对前提，请刷新后再决定是否执行。</Callout>}
@@ -495,6 +498,23 @@ function NodeWorkspace({
               停放理由：{intent.park_reason}
             </Callout>
           )}
+          {intent?.status === 'parked' &&
+            (intent.parked_premise_fact_ids?.length ?? 0) > 0 &&
+            readiness.data?.ready && (
+              <Callout tone="info" className="leading-relaxed">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>停放时未就绪的前提现在已经通过复核；可重开继续，或确认已并入其他方向。</span>
+                  <Button
+                    size="xs"
+                    variant="soft"
+                    disabled={busy}
+                    onClick={() => run(() => api.reopenIntent(intent.id), '已重开')}
+                  >
+                    重开
+                  </Button>
+                </div>
+              </Callout>
+            )}
           {intent?.doc && (
             <pre className="tw-mono tw-break max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-hairline bg-surface-2 p-2.5 text-[11px] leading-relaxed text-ink-2">
               {intent.doc}

@@ -15,6 +15,31 @@ import (
 // the review run, its output or the queue. It exists because a blocked
 // verified_only direction otherwise invites the commander to invent a review
 // workaround.
+// A direction that shares an entity with its own unverified premise is the
+// re-probe circularity: the review probes the entity, then the direction probes
+// it again. The hint is advisory because the same shape is valid for a deeper
+// direction that merely operates on that host.
+func TestReadinessWarnsAboutSelfReferentialPremise(t *testing.T) {
+	s, p, f, _ := proofPolicyFixture(t)
+	if _, err := p.Store.UpdateFact(f.ID, func(f *model.Fact) {
+		f.EntityRef = "host:36.103.223.42"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	in, err := p.Store.CreateIntent(model.Intent{
+		Title:              "复探 36.103.223.42 可达性",
+		FromFactIDs:        []string{f.ID},
+		InterestEntityRefs: []string{"host:36.103.223.42"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.readiness(p.Store.Snapshot(), in, s.premisePolicy())
+	if got.SelfReferenceHint == "" || !strings.Contains(got.SelfReferenceHint, "重复") {
+		t.Fatalf("self-reference hint = %q", got.SelfReferenceHint)
+	}
+}
+
 func TestReadinessReportsBlockedReviewState(t *testing.T) {
 	t.Run("queued", func(t *testing.T) {
 		s, p, f, _ := proofPolicyFixture(t)

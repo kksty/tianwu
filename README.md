@@ -10,30 +10,36 @@
 
 ## 界面
 
-天吴把同一份账本投影成图谱、焦点和运行视图。以下截图由离线 fixture 生成，使用合成目标和数据，**不含真实项目目标、凭据或运行记录**。
+天吴把同一份账本投影成图谱、焦点、指令和运行视图。以下截图由离线 fixture 生成，使用合成目标和数据，**不含真实项目目标、凭据或运行记录**。
 
 <p align="center">
-  <img src="docs/screenshots/graph.png" alt="图谱：链路树、状态颜色与关系图例" />
+  <img src="docs/screenshots/graph-large.png" width="100%" alt="大规模合成图谱：100 条方向、1,000 条事实" />
 </p>
 
-<p align="center"><em>图谱：一条方向从必要前提走到产出事实。青色 + 缓慢呼吸框表示固定复核中；蓝色实线只表示必要前提。</em></p>
+<p align="center"><em>同一份账本投影成可缩放的攻击面图谱。合成 fixture：100 条方向、1,000 条事实；节点按类型着色，边区分产出、必要前提、引用与固定关系。</em></p>
 
-<p align="center">
-  <img src="docs/screenshots/focus.png" alt="焦点投影：热/温/冷事实索引" />
-</p>
-
-<p align="center"><em>焦点投影：把本轮相关事实分成热/温/冷三层，带断言版本、记录版本和来源 run，便于按 id 续读。</em></p>
-
-<details>
-<summary>大规模合成 fixture（100 条方向、1,000 条事实）</summary>
-
-<p align="center">
-  <img src="docs/screenshots/graph-large.png" alt="大规模合成 fixture：1100 个节点" />
-</p>
-
-<p align="center"><em>仅用于展示布局、着色和渲染规模；数据为合成 fixture，不是真实项目。</em></p>
-
-</details>
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="docs/screenshots/graph-inspector.png" width="100%" alt="图谱节点检查器：断言版本、复核状态与关系" />
+  <p><sub><b>图谱与节点检查</b><br/>点开节点查看断言版本、复核状态、证据与关系；蓝色实线是必要前提，绿色虚线是引用/固定，未满足的前提不会被伪装成产出。</sub></p>
+</td>
+<td width="50%" valign="top">
+  <img src="docs/screenshots/focus.png" width="100%" alt="焦点投影：热/温/冷事实索引" />
+  <p><sub><b>焦点投影</b><br/>把本轮相关事实分成热/温/冷三层，带断言版本、记录版本与来源 run，按 id 续读，不把“没列出来”当成“事实不存在”。</sub></p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="docs/screenshots/instructions.png" width="100%" alt="持久指令：操作员的边界与长期约束" />
+  <p><sub><b>持久指令</b><br/>操作员的授权边界、禁止事项和长期约束进入每一轮；指挥官与执行者只能读取，不能创建、改写或撤销。</sub></p>
+</td>
+<td width="50%" valign="top">
+  <img src="docs/screenshots/models.png" width="100%" alt="模型配置：多配置、层级、容量与连通性检测" />
+  <p><sub><b>模型与执行环境</b><br/>多配置、层级选择、并发容量、暂停与恢复、显式连通性检测；一个配置可承担全部职责，替代模型不会改写历史绑定。</sub></p>
+</td>
+</tr>
+</table>
 
 ## 核心能力
 
