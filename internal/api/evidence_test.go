@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kksty/tianwu/internal/evidence"
 	"github.com/kksty/tianwu/internal/model"
 	"github.com/kksty/tianwu/internal/store"
 )
@@ -93,8 +94,13 @@ func addEvidenceFile(t *testing.T, st *store.Store, caseRoot, rel, name, mimeTyp
 	if err := os.WriteFile(abs, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	preserved, err := evidence.Preserve(caseRoot, abs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	e, err := st.AddEvidence(model.Evidence{
-		RunID: "r1", IntentID: "in_1", Name: name, Mime: mimeType, Size: int64(len(body)), URI: rel,
+		RunID: "r1", IntentID: "in_1", Name: name, Mime: mimeType,
+		Size: preserved.Size, URI: rel, Digest: preserved.Digest,
 	})
 	if err != nil {
 		t.Fatal(err)

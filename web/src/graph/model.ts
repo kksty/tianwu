@@ -140,7 +140,26 @@ export interface GraphEdge {
   parentIntent?: string
   label?: string
   status?: string
+  /** The premise is not a gate admission can accept: its source fact is an
+   *  unreviewable kind or not verified, or the snapshot cannot open the source
+   *  reference at all. Drawn as a dashed blocked gate instead of the normal
+   *  hard-gate blue. */
+  blocked?: boolean
 }
+
+/** Fact kinds an independent review can re-prove, so admission may accept them
+ *  as necessary premises (model.ReviewableKind). A note, a clue or an unknown
+ *  kind is reference material: it can never satisfy a `from_fact_ids` gate,
+ *  whatever its status says. Kept as a copy of the Go rule on purpose: the
+ *  graph must not learn a second, looser admission rule. */
+export const REVIEWABLE_FACT_KINDS: ReadonlySet<string> = new Set([
+  'host',
+  'service',
+  'vuln',
+  'cred',
+  'loot',
+  'artifact',
+])
 
 /** Per-fact counters the page carries when the fact body is projected away. */
 export interface FactMeta {
@@ -460,6 +479,17 @@ export function buildGraph(
   }
 
   // ---- edges ----
+  // A premise is a hard gate, and the graph must draw it as gate admission
+  // actually answers — not as "an edge exists". Admission refuses a premise
+  // that is an unreviewable kind or not verified at its current claim, and a
+  // ledger reference the snapshot cannot open (missing / not loaded) is not a
+  // proven premise either. Everything else (a reviewable kind verified at its
+  // current assertion) is a gate admission may accept.
+  const premiseSourceBlocked = (a: GraphNode): boolean => {
+    if (a.type === 'boundary') return true
+    if (a.type !== 'fact') return false
+    return !REVIEWABLE_FACT_KINDS.has(a.kind ?? '') || a.meta?.fact?.status !== 'verified'
+  }
   const link = (
     source: string,
     target: string,
@@ -471,6 +501,9 @@ export function buildGraph(
     const a = byId.get(source)
     const b = byId.get(target)
     if (!a || !b || source === target) return
+    // The edge carries the gate's current state so the painter can show a
+    // blocked premise (dashed red) instead of the usual premise blue.
+    const blocked = kind === 'premise' && premiseSourceBlocked(a)
     edges.push({
       id: `${source}->${target}:${kind}:${intent?.id ?? ''}`,
       source,
@@ -480,6 +513,7 @@ export function buildGraph(
       parentIntent,
       label,
       status: intent?.status,
+      blocked,
     })
     a.degree++
     b.degree++

@@ -17,9 +17,18 @@ const (
 	// run, so the watchdog must not "recover" it and dispatch must not claim it;
 	// only its wait condition (or its deadline) moves it back to pending.
 	StatusWaiting = "waiting"
-	StatusDone    = "done"
-	StatusFailed  = "failed"
-	StatusParked  = "parked"
+	// StatusReviewing is the fixed settlement phase between a successful run and
+	// done: the run's new report-bound facts are being re-proven. It has no live
+	// executor run and must not be dispatched again, but it is not settled: a
+	// waiting parent and the commander must not treat its facts as final yet.
+	StatusReviewing = "reviewing"
+	StatusDone      = "done"
+	StatusFailed    = "failed"
+	// StatusReviewFailed is a terminal review verdict on a completed run: the
+	// work ran, but at least one produced conclusion could not be proven. It is
+	// retryable in place like failed; it is not a dispatchable pending state.
+	StatusReviewFailed = "review_failed"
+	StatusParked       = "parked"
 )
 
 // Run status values. A cancellation is our decision, not the executor's
@@ -102,8 +111,10 @@ type Interjection struct {
 // executor brief never reads this field, because a note is written by the
 // decider (which saw the run's internals) about the executor, not to it.
 const (
-	IntentNoteRetry = "retry"
-	IntentNoteSteer = "steer"
+	IntentNoteRetry     = "retry"
+	IntentNoteSteer     = "steer"
+	IntentNoteReview    = "review"
+	IntentNoteBootstrap = "bootstrap"
 )
 
 // IntentNote is one retry/steer remark kept next to the direction it explains.
@@ -193,7 +204,12 @@ type Intent struct {
 	// intent goes back to pending (D19), and without this the next round's
 	// dispatchPending would immediately start it again — cancel would not
 	// cancel. Held intents stay pending until an explicit retry/run clears it.
-	Hold       bool `json:"hold,omitempty"`
+	Hold bool `json:"hold,omitempty"`
+	// Bootstrap marks a no-premise direction created by a harness session after
+	// the project already had facts. It is held until the operator confirms the
+	// first touch; only the operator may retry/run it (the commander cannot clear
+	// the hold itself).
+	Bootstrap  bool `json:"bootstrap,omitempty"`
 	Attempts   int  `json:"attempts"`
 	SteerCount int  `json:"steer_count,omitempty"`
 	// SayCount records mid-flight messages independently of continuations.
@@ -206,12 +222,17 @@ type Intent struct {
 	// Notes is the retry/steer commentary about this direction. It is shown in
 	// the console and read by the decider; BuildPrompt never reads it, so a
 	// note cannot become an executor constraint (D72).
-	Notes      []IntentNote `json:"notes,omitempty"`
-	ClaimedBy  string       `json:"claimed_by,omitempty"`
-	ParkReason string       `json:"park_reason,omitempty"`
-	RunID      string       `json:"run_id,omitempty"`
-	CreatedAt  time.Time    `json:"created_at"`
-	UpdatedAt  time.Time    `json:"updated_at"`
+	Notes     []IntentNote `json:"notes,omitempty"`
+	ClaimedBy string       `json:"claimed_by,omitempty"`
+	// ReviewFailedFacts is the unresolved set from the last fixed-review phase.
+	// A retry must re-review these facts (or see them corrected) even when the
+	// new run declares nothing new; otherwise a bare re-run could flip
+	// review_failed to done without changing the rejected assertion.
+	ReviewFailedFacts []string  `json:"review_failed_facts,omitempty"`
+	ParkReason        string    `json:"park_reason,omitempty"`
+	RunID             string    `json:"run_id,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // Wait is the persisted condition a direction yielded on. Evaluation, the
@@ -296,7 +317,7 @@ type WaitResult struct {
 // still open work.
 func Settled(status string) bool {
 	switch status {
-	case StatusDone, StatusFailed, StatusParked:
+	case StatusDone, StatusFailed, StatusReviewFailed, StatusParked:
 		return true
 	}
 	return false
@@ -609,10 +630,10 @@ type Evidence struct {
 // CompletedAt is when it was closed. Without them the console can only say
 // "已达成" — which is exactly the question ("why?") the operator asks next.
 type Goal struct {
-	CreatedByRun      string            `json:"created_by_run_id,omitempty"`
-	CompletionPolicy  string            `json:"completion_policy,omitempty"`
-	ID                string            `json:"id"`
-	Statement         string            `json:"statement"`
+	CreatedByRun     string `json:"created_by_run_id,omitempty"`
+	CompletionPolicy string `json:"completion_policy,omitempty"`
+	ID               string `json:"id"`
+	Statement        string `json:"statement"`
 	// Start is the operator's starting point for this goal (what is known now).
 	// Empty on the goal created together with a project: there the project brief
 	// is the start, so repeating it would only duplicate the brief in prompts.
@@ -626,8 +647,8 @@ type Goal struct {
 	// QuantifiedTarget is the legacy quantified criterion written by older
 	// consoles. Operator-defined goals carry Start + Statement now; the field is
 	// kept so existing ledgers load and read exactly as before.
-	QuantifiedTarget  string            `json:"quantified_target,omitempty"`
-	CreatedAt         time.Time         `json:"created_at"`
+	QuantifiedTarget string    `json:"quantified_target,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
 	// ReceiptStale/ReceiptChanged are computed, never persisted: they say that a
 	// fact the completion cited has changed since the stamp, so the operator (or
 	// commander) must re-judge the goal. The stamp itself is never rewritten

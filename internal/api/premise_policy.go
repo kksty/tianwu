@@ -19,23 +19,21 @@ import (
 // as an actionable predecessor yet.
 var ErrPremiseUnverified = errors.New("前提必须在当前断言版本通过独立核验")
 
-// premisePolicy is the effective admission mode of the current project.
+// premisePolicy is the effective admission mode of the current project. There is
+// one mode; bare test servers use it too.
 func (s *Server) premisePolicy() string {
 	if s.Project == nil {
-		return project.PremisePolicyStandard
+		return project.PremisePolicyVerifiedOnly
 	}
 	return s.Project.PremisePolicyView()
 }
 
 // checkPremiseRefs validates the from_fact_ids a caller is about to bind to a
-// new direction. Existence is mandatory in every mode (the child/spawn paths
-// already enforced it; the top-level create path did not). standard only
-// requires existence: a rejected premise is blocked later at dispatch by
-// blockedPremises. verified_only additionally rejects rejected and
-// non-reviewable premises, while allowing a reviewable-but-pending relation to
-// be registered: the queue can then see what needs review, and dispatch stays
-// gated until it is proven. The error preserves which rule failed so the HTTP
-// mapping can give the caller a machine code.
+// new direction. Existence is mandatory; rejected and non-reviewable premises
+// are rejected immediately, while a reviewable-but-pending relation may be
+// registered so the fixed review phase can prove it and dispatch stays gated
+// until it is proven. The error preserves which rule failed so the HTTP mapping
+// can give the caller a machine code.
 func (s *Server) checkPremiseRefs(ids []string) error {
 	policy := s.premisePolicy()
 	for _, raw := range ids {

@@ -26,9 +26,7 @@ func TestCompletedWorkNeverStartsAutomaticCommanderRounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.PinGoal(g.ID, e.ID, "fixture complete", nil); err != nil {
-		t.Fatal(err)
-	}
+	completeGoal(t, st, g.ID, e.ID)
 	r := NewRunner(st, nil, "")
 	r.ModelName = "fixture"
 	calls := 0
@@ -81,9 +79,7 @@ func TestSettledSignalOnlyForFinishedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PinGoal(g.ID, e.ID, "fixture complete", nil); err != nil {
-		t.Fatal(err)
-	}
+	completeGoal(t, st, g.ID, e.ID)
 	r.settleIfDone()
 	if fired != 0 {
 		t.Fatalf("a pending direction signalled done: %d", fired)
@@ -123,9 +119,7 @@ func TestIdleWakeOnFinishedWorkSignalsSettled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PinGoal(g.ID, e.ID, "done", nil); err != nil {
-		t.Fatal(err)
-	}
+	completeGoal(t, st, g.ID, e.ID)
 	r := NewRunner(st, nil, "")
 	r.Heartbeat = time.Hour
 	r.Debounce = time.Millisecond

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,17 @@ const ManifestFile = "project.json"
 // DefaultID is created on first start so the console is usable immediately.
 const DefaultID = "default"
 
+// PauseKind values are persisted next to the paused flag so a restart can still
+// say who stopped the project. They are machine codes: the console and the
+// resume contract switch on them, never on the human-readable reason prose.
+// api.pauseKind* and cmd/tw's boot reason derive from these constants, so the
+// runtime and the manifest cannot drift apart.
+const (
+	PauseKindManualPause       = "manual_pause"
+	PauseKindCompletionStandby = "completion_standby"
+	PauseKindCommanderStandby  = "commander_standby"
+)
+
 type Manifest struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -47,6 +59,13 @@ type Manifest struct {
 	Description string    `json:"description,omitempty"`
 	Created     time.Time `json:"created"`
 	Paused      bool      `json:"paused,omitempty"`
+	// PauseKind is the structured cause of Paused: manual_pause,
+	// completion_standby or commander_standby. It is written by the control plane
+	// (the project package does not import api), only meaningful while Paused, and
+	// cleared on resume. Persisting it is what keeps a commander stop from coming
+	// back as "the operator paused the project" after a restart (types.ts
+	// project_pause_kind is the machine code the console classifies from).
+	PauseKind string `json:"pause_kind,omitempty"`
 	// MaxRuns overrides the instance --max-runs for this engagement. Nil means
 	// "inherit the instance default"; a pointer is what distinguishes that from
 	// 0, which is a deliberate "uncapped". It is a dispatch knob, not a fact:
@@ -90,17 +109,11 @@ type Manifest struct {
 	// (the commander is the operator's channel, and self-messages are refused
 	// before authorization is consulted).
 	PeerPolicy *PeerPolicy `json:"peer_policy,omitempty"`
-	// PremisePolicy governs how strictly a direction's from_fact_ids must be
-	// backed. Empty or "standard" is the existing behaviour: the premise must
-	// exist and must not be rejected at dispatch. "verified_only" (证明优先) is
-	// the operator's high-assurance mode: every necessary premise must be a
-	// reviewable kind, verified (a pass review bound to its current claim
-	// version) with intact original evidence, before the direction can be
-	// dispatched; a reviewable-but-pending premise may be registered so the
-	// review queue can schedule its proof. It is an operator setting because it
-	// changes what the ledger accepts as an actionable predecessor, not a
-	// tactic. Legacy manifests that still store "strict" are read as
-	// "verified_only" (see effectivePremisePolicy).
+	// PremisePolicy is always "verified_only" (证明优先): every necessary premise
+	// must be a reviewable kind, verified (a pass review bound to its current
+	// claim version) with intact original evidence, before the direction can be
+	// dispatched. Legacy standard/strict manifests are migrated to this value
+	// when loaded and are no longer served as a read-only mode.
 	PremisePolicy string `json:"premise_policy,omitempty"`
 }
 
@@ -156,16 +169,43 @@ func (p *Project) IsPaused() bool {
 
 // Pause is operator state, not a fact. Persist it with the manifest so a
 // control-plane restart cannot silently resume an engagement and spend tokens.
+//
+// SetPaused keeps the existing structured cause: pausing is a transition, not a
+// reclassification (a boot pause must not rewrite a persisted commander stop),
+// and resuming always clears it. Callers that know the cause use
+// SetPausedWithKind.
 func (p *Project) SetPaused(paused bool) error {
+	return p.SetPausedWithKind(paused, "")
+}
+
+// SetPausedWithKind persists the paused flag and its structured cause in one
+// manifest write. An empty kind on pause keeps whatever the manifest already
+// carries; a non-empty kind records the new cause; resume always clears it. A
+// failed write rolls both fields back so memory and disk cannot disagree.
+func (p *Project) SetPausedWithKind(paused bool, kind string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	before := p.Paused
+	beforePaused, beforeKind := p.Paused, p.PauseKind
 	p.Paused = paused
+	switch {
+	case !paused:
+		p.PauseKind = ""
+	case kind != "":
+		p.PauseKind = kind
+	}
 	if err := p.write(); err != nil {
-		p.Paused = before
+		p.Paused, p.PauseKind = beforePaused, beforeKind
 		return err
 	}
 	return nil
+}
+
+// PauseKindOf returns the persisted pause cause ("" for a legacy pause or a
+// running project). It is a machine code, never display prose.
+func (p *Project) PauseKindOf() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.PauseKind
 }
 
 func (p *Project) DescriptionText() string {
@@ -390,10 +430,19 @@ func load(root, dir string) (*Project, error) {
 		return nil, fmt.Errorf("project %s requires a current SQLite ledger: %w", dir, err)
 	}
 	p := &Project{Dir: d, CaseDir: filepath.Join(d, "cases")}
+	migrated := false
 	if b, err := os.ReadFile(filepath.Join(d, ManifestFile)); err == nil {
 		if err := json.Unmarshal(b, &p.Manifest); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", d, err)
 		}
+	}
+	// One-way, one-time migration: standard/strict/no policy all mean
+	// verified_only now. The old value is not served as a compatibility mode;
+	// writing it here makes the migration explicit in the manifest and keeps the
+	// in-memory project consistent with disk before any dispatch.
+	if strings.TrimSpace(p.PremisePolicy) != PremisePolicyVerifiedOnly {
+		p.PremisePolicy = PremisePolicyVerifiedOnly
+		migrated = true
 	}
 	// The directory name is the address the console uses; trust it over a
 	// manifest that may have been copied from another project.
@@ -418,6 +467,11 @@ func load(root, dir string) (*Project, error) {
 	p.Store = st
 	if _, err := os.Stat(filepath.Join(d, ManifestFile)); os.IsNotExist(err) {
 		_ = p.write()
+	} else if migrated {
+		if err := p.write(); err != nil {
+			return nil, fmt.Errorf("migrate %s to verified_only: %w", d, err)
+		}
+		log.Printf("project %s: premise_policy migrated to verified_only", p.ID)
 	}
 	return p, nil
 }
@@ -494,7 +548,17 @@ func (m *Manager) EnsureDefault(name, scope string) (*Project, error) {
 	if p, ok := m.byID[DefaultID]; ok {
 		return p, nil
 	}
-	return m.create(DefaultID, name, scope)
+	p, err := m.create(DefaultID, name, scope)
+	if err != nil {
+		return nil, err
+	}
+	// A fresh default is a new engagement: proof-first. An existing default
+	// manifest is untouched and stays legacy standard until the operator
+	// explicitly migrates it in project settings.
+	if _, err := p.SetPremisePolicy(PremisePolicyVerifiedOnly); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // create must be called with the write lock held.
@@ -505,7 +569,7 @@ func (m *Manager) create(base, name, scope string) (*Project, error) {
 		return nil, err
 	}
 	p := &Project{
-		Manifest: Manifest{ID: id, Name: name, Scope: strings.TrimSpace(scope), Created: time.Now()},
+		Manifest: Manifest{ID: id, Name: name, Scope: strings.TrimSpace(scope), Created: time.Now(), PremisePolicy: PremisePolicyVerifiedOnly},
 		Dir:      d,
 		CaseDir:  filepath.Join(d, "cases"),
 	}

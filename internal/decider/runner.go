@@ -103,8 +103,11 @@ type Runner struct {
 	activity     Activity
 	activityWake string
 	// paused is the operator's kill switch: wakes are dropped and the active
-	// round is canceled until an explicit Resume.
+	// round is canceled until an explicit Resume. selfPaused records that the
+	// stop came from the commander's own round (StandbyFor): that round is not
+	// canceled, so its answer and delivery checkpoint still belong to it.
 	paused      bool
+	selfPaused  bool
 	pauseReason string
 	startedAt   time.Time
 	retryAfter  time.Time // transport recovery backoff; never a strategy/fee gate
@@ -300,12 +303,45 @@ func (r *Runner) PauseFor(reason string) {
 	}
 	r.mu.Lock()
 	r.paused = true
+	r.selfPaused = false
 	r.pauseReason = reason
 	if r.cancelRound != nil {
 		r.cancelRound(ErrPaused)
 	}
 	// Queued work is not permission to spend after a later resume. Resume's
 	// explicit wake will read the then-current board instead.
+drain:
+	for {
+		select {
+		case <-r.wake:
+		default:
+			break drain
+		}
+	}
+	r.mu.Unlock()
+	if reason != "" {
+		r.setActivity("paused", reason)
+	}
+}
+
+// StandbyFor is the commander's own stop request: the wake loop pauses, but the
+// round that asked for it is NOT canceled. PauseFor is the operator's kill
+// switch — it cuts an in-flight round immediately because a human wants the
+// spending to end now. A commander round that judges "this engagement should
+// stop" must instead be allowed to finish its answer and its bookkeeping; the
+// project pause it requested is already visible to the console while that
+// happens (the API sets the dispatch gate before calling this).
+//
+// Queued wakes are dropped for the same reason PauseFor drops them: after a
+// pause, only an explicit operator resume may buy the next round.
+func (r *Runner) StandbyFor(reason string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.paused = true
+	r.selfPaused = true
+	r.pauseReason = reason
 drain:
 	for {
 		select {
@@ -327,6 +363,7 @@ func (r *Runner) Resume() {
 	}
 	r.mu.Lock()
 	r.paused = false
+	r.selfPaused = false
 	r.retryAfter = time.Time{}
 	r.pauseReason = ""
 	r.mu.Unlock()
@@ -601,12 +638,16 @@ func (r *Runner) needsAttention() bool {
 	}
 	for _, in := range r.Store.ListIntents() {
 		switch in.Status {
-		case model.StatusPending, model.StatusFailed:
+		case model.StatusPending, model.StatusFailed, model.StatusReviewFailed:
 			if !in.Hold {
 				return true
 			}
 		case model.StatusRunning, model.StatusClaimed, model.StatusWaiting:
 			return true
+		case model.StatusReviewing:
+			// The fixed review phase owns its own wake when it finishes. Waking
+			// the commander merely because a review is running makes it poll a
+			// direction it must not act on yet.
 		}
 	}
 	// A message addressed to the commander wakes the loop directly (D88), so an
@@ -620,10 +661,21 @@ func (r *Runner) needsAttention() bool {
 // engagement the operator is still setting up, and auto-pausing it would fight
 // the next click.
 func (r *Runner) workFinished() bool {
-	if r.Store == nil || r.needsAttention() {
+	if r.Store == nil || r.needsAttention() || r.hasReviewing() {
 		return false
 	}
 	return len(r.Store.Goals()) > 0
+}
+
+// hasReviewing keeps completion/pause from firing while a fixed review phase is
+// still running. It does not wake the commander; the review completion does.
+func (r *Runner) hasReviewing() bool {
+	for _, in := range r.Store.ListIntents() {
+		if in.Status == model.StatusReviewing {
+			return true
+		}
+	}
+	return false
 }
 
 // settleIfDone hands a finished project to the control plane once, so it can
@@ -834,7 +886,13 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 		d.Notes = append(d.Notes, "由 harness 指挥官会话执行（D78）")
 	}
 	r.mu.Lock()
-	if err == nil && !timedOut && !r.paused && roundCtx.Err() == nil {
+	// A standby pause is requested by this very round, so the round DID finish
+	// its input and its delivery checkpoint is still valid; an operator pause
+	// cancels the round, so its checkpoint is not. The run-context check already
+	// rejects every canceled round; the selfPaused exception keeps the standby
+	// round from being replayed as unprocessed after the operator resumes.
+	roundFinishedInput := err == nil && !timedOut && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
+	if roundFinishedInput {
 		if checkpointErr := r.Store.CompleteCommanderAttention(attention); checkpointErr != nil {
 			d.Error = "模型调用已结束，但保存事件交付进度失败：" + checkpointErr.Error()
 		} else {
@@ -860,8 +918,9 @@ func (r *Runner) Run(ctx context.Context, wake string, force bool) *Decision {
 	// thisHandoff is whether the round that just ended was the 85% handoff.
 	// handoffDone is the pressure-cycle flag ("do not hand off again until the
 	// context resets"); handoffRound is the one-round flag the next prompt reads
-	// ("your note was just rewritten, here it is in full once").
-	thisHandoff := ctxStatus.Handoff() && err == nil && !r.paused && roundCtx.Err() == nil
+	// ("your note was just rewritten, here it is in full once"). A standby round
+	// counts as finished too: it was not cut, only the next wake is forbidden.
+	thisHandoff := ctxStatus.Handoff() && err == nil && roundCtx.Err() == nil && (!r.paused || r.selfPaused)
 	switch {
 	case res.Compacted:
 		// Compaction ends the pressure cycle: the context was reset, and the

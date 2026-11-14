@@ -103,7 +103,7 @@ func TestInstructionInputAndAcknowledgementUseSpecificRunAndVersion(t *testing.T
 	in := instructionFixture(t, s, "", "g")
 	task, _ := s.CreateIntent(model.Intent{Title: "work"})
 	brief, run, _ := s.StartIntentRun(task.ID, "local", "", model.Run{})
-	if _, err := s.PrepareRunInput(run.ID, brief, model.PremiseStandard); err != nil {
+	if _, err := s.PrepareRunInput(run.ID, brief, model.PremiseVerifiedOnly); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := s.GetRun(run.ID)

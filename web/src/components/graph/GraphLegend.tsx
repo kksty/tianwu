@@ -28,7 +28,9 @@ const FACT_KINDS = ['vuln', 'cred', 'host', 'service', 'loot', 'artifact', 'note
 const INTENT_STATUSES: readonly [string, string][] = [
   ['排队', 'pending'],
   ['执行中', 'running'],
+  ['固定复核中', 'reviewing'],
   ['失败', 'failed'],
+  ['复核未通过', 'review_failed'],
   ['完成', 'done'],
   ['停放', 'parked'],
 ]
@@ -202,6 +204,9 @@ export function GraphLegend({ className }: { className?: string }) {
               </Row>
             ))}
           </div>
+          <Hint>
+            固定复核中（reviewing）的产出边画成虚线蓝：蓝色实线只表示「必要前提」这一种硬门槛。
+          </Hint>
 
           <GroupTitle>关系（边）</GroupTitle>
           <div className="space-y-0.5">
@@ -209,9 +214,13 @@ export function GraphLegend({ className }: { className?: string }) {
               <Line color="rgba(169,178,193,0.85)" style="solid" />
               产出（步骤 → 事实）
             </Row>
-            <Row title="from_fact_ids：方向派发的硬门槛；蓝色实线是唯一「硬门槛」色，前提缺失或被否决会挡住派发">
+            <Row title="from_fact_ids：方向派发的硬门槛；蓝色实线是唯一「硬门槛」色。前提不可派发时会改成虚线红（阻挡）">
               <Line color={EDGE_COLORS.premise} style="solid" />
               必要前提
+            </Row>
+            <Row title="不可复核/未核验/缺失的前提都会挡住派发（与准入同源规则）；虚线红，复核通过后恢复蓝色实线">
+              <Line color={EDGE_COLORS.premiseBlocked} style="dashed" />
+              前提不满足（阻挡）
             </Row>
             <Row title="context_fact_ids：阅读选择，不是派发门槛；绿色虚线">
               <Line color={EDGE_COLORS.reference} style="dashed" />

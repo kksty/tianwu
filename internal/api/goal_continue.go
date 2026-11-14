@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kksty/tianwu/internal/model"
+	"github.com/kksty/tianwu/internal/project"
 	"github.com/kksty/tianwu/internal/store"
 )
 
@@ -23,8 +24,9 @@ const (
 	pauseKindWaitingChildren   = "waiting_children"
 	pauseKindWaitingAction     = "waiting_action"
 	pauseKindWaitingResume     = "waiting_resume"
-	pauseKindCompletionStandby = "completion_standby"
-	pauseKindManualPause       = "manual_pause"
+	pauseKindCompletionStandby = project.PauseKindCompletionStandby
+	pauseKindManualPause       = project.PauseKindManualPause
+	pauseKindCommanderStandby  = project.PauseKindCommanderStandby
 	pauseKindProviderFault     = "provider_fault"
 )
 
@@ -34,6 +36,12 @@ const (
 const (
 	pauseCauseManual     = "manual"
 	pauseCauseCompletion = "completion"
+	// pauseCauseCommander is the commander's explicit "stop this engagement"
+	// request (POST /api/project/standby). It is a real pause: persists across
+	// restarts, cancels executing directions, and only the operator can resume.
+	// It is distinct from the operator's own pause so the console can say who
+	// stopped the project instead of guessing from the reason text.
+	pauseCauseCommander = "commander"
 )
 
 // projectState is the classified parking state of an engagement. Reason is the
@@ -45,11 +53,20 @@ type projectState struct {
 	Reason string
 }
 
-// projectState classifies the current pause without guessing from prose where a
-// structured cause exists:
+// projectState is projectStateLocked with the control mutex taken. Readers that
+// already hold controlMu (the append-and-continue section) must call the locked
+// variant instead: pauseCause is guarded by that mutex.
+func (s *Server) projectState() projectState {
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	return s.projectStateLocked()
+}
+
+// projectStateLocked classifies the current pause without guessing from prose
+// where a structured cause exists:
 //
-//   - a completion stand-by and a manual pause are recorded in pauseCause by the
-//     paths that apply them;
+//   - a completion stand-by, a manual pause, and a commander stop request are
+//     recorded in pauseCause by the paths that apply them;
 //   - a boot/restart pause (attachState) writes the manifest flag but no runtime
 //     cause, so a paused project with a persisted flag and no cause is reported
 //     as manual: it needs the same explicit human resume;
@@ -58,7 +75,7 @@ type projectState struct {
 //     so "runtime paused while the manifest still says running" is the fault;
 //   - not paused but with a waiting direction is waiting_human: live work that
 //     must not be disturbed, not a park.
-func (s *Server) projectState() projectState {
+func (s *Server) projectStateLocked() projectState {
 	st := projectState{Paused: s.paused.Load()}
 	if s.Decider != nil {
 		st.Reason = s.Decider.Status().PausedReason
@@ -67,6 +84,8 @@ func (s *Server) projectState() projectState {
 		switch s.pauseCause {
 		case pauseCauseCompletion:
 			st.Kind = pauseKindCompletionStandby
+		case pauseCauseCommander:
+			st.Kind = pauseKindCommanderStandby
 		case pauseCauseManual:
 			st.Kind = pauseKindManualPause
 		default:
@@ -105,9 +124,10 @@ func (s *Server) projectState() projectState {
 
 // appendGoalAndContinue is the explicit operator action for a finished or parked
 // engagement: append a NEW independent goal and, when the project is parked in a
-// resumable stand-by (completion or a manual pause this request observes), clear
-// the pause and wake the commander so the new goal is acted on. It never touches
-// a stamped goal's receipt: completion history stays exactly what was claimed.
+// resumable stand-by (completion, a manual pause, or the commander's own stop
+// request this request observes), clear the pause and wake the commander so the
+// new goal is acted on. It never touches a stamped goal's receipt: completion
+// history stays exactly what was claimed.
 //
 // It is not reachable from the harness surface: the route lives under
 // /api/project/, which the agent-token gate (cmd/tw auth.agentRouteHidden)
@@ -156,7 +176,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
 
-	before := s.projectState()
+	before := s.projectStateLocked()
 	if before.Kind == pauseKindProviderFault {
 		// A credential fault is not ours to clear: a human must fix the key or
 		// switch the profile first. Refuse before writing anything, so the
@@ -201,7 +221,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	// controlMu, so a fault that landed during this request must still keep the
 	// project paused. The goal stays (retrying with the same key finds it) and a
 	// retry after the human fix completes the resume.
-	current := s.projectState()
+	current := s.projectStateLocked()
 	if current.Paused && current.Kind == pauseKindProviderFault {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":             "目标已追加，但项目在请求期间因模型/凭据故障暂停：未恢复项目；修复后用同一个 idempotency_key 重试会找回该目标并继续",
@@ -220,7 +240,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 	resumedFrom := ""
 	if current.Paused {
 		switch current.Kind {
-		case pauseKindCompletionStandby, pauseKindManualPause:
+		case pauseKindCompletionStandby, pauseKindManualPause, pauseKindCommanderStandby:
 			resumedFrom = current.Kind
 		}
 	}
@@ -231,7 +251,7 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 			// the project stays paused exactly as the manifest still says. The
 			// goal exists; a retry with the same key finds it and retries the
 			// resume, so the failure is reported as retryable, not final.
-			after := s.projectState()
+			after := s.projectStateLocked()
 			writeJSON(w, http.StatusInternalServerError, map[string]any{
 				"error":             "目标已追加，但无法保存继续状态，项目保持暂停；用同一个 idempotency_key 重试会找回该目标并完成恢复：" + err.Error(),
 				"code":              "resume_failed",
@@ -261,11 +281,13 @@ func (s *Server) appendGoalAndContinue(w http.ResponseWriter, r *http.Request) {
 		woken = true
 	}
 
-	after := s.projectState()
+	after := s.projectStateLocked()
 	note := ""
 	switch {
 	case resumed && resumedFrom == pauseKindCompletionStandby:
 		note = "项目此前处于完成待命，已追加目标并显式恢复派发；旧目标的完成收据保持不变。"
+	case resumed && resumedFrom == pauseKindCommanderStandby:
+		note = "项目此前由指挥官请求停止，已按本次显式操作追加目标并恢复派发；指挥官请求停止的原因仍在它的暂停说明里。"
 	case resumed:
 		note = "项目此前是人工暂停，已按本次显式操作恢复；旧目标的完成收据保持不变。"
 	case !created:

@@ -55,24 +55,23 @@ func TestCompleteGoalRequiresReason(t *testing.T) {
 // commander judges the goal against its own statement + quantified target, and
 // verification stays the report's delivery gate. The engine must not turn that
 // judgement into a count.
-func TestCompleteGoalDoesNotRequireVerified(t *testing.T) {
+func TestCompleteGoalRejectsUnverifiedCitation(t *testing.T) {
 	st := newStore(t)
 	ev, _ := st.AddEvidence(model.Evidence{Name: "p.txt", URI: "p.txt"})
 	f, _ := st.AddFact(model.Fact{Kind: "vuln", Title: "未复核但有实测", Status: "unverified", EvidenceIDs: []string{ev.ID}})
 	g, _ := st.AddGoal(model.Goal{Statement: "拿到 shell", QuantifiedTarget: "口径：认证面有一条实测结论"})
-	pinned, err := CompleteGoal(st, g.ID, []string{f.ID}, "口径 1 已满足：未复核，但实测和原始响应在 e_…；复核留给报告交付前做")
-	if err != nil {
-		t.Fatalf("unverified citation must be the commander's call: %v", err)
-	}
-	if !pinned.Met || pinned.Note == "" || len(pinned.From) != 1 {
-		t.Fatalf("goal = %+v", pinned)
+	if _, err := CompleteGoal(st, g.ID, []string{f.ID}, "未复核结论不能直接盖章"); err == nil {
+		t.Fatal("unverified citation accepted as completion proof")
 	}
 }
 
 func TestCompleteGoalPinsVerifiedVulnWithReceipt(t *testing.T) {
 	st := newStore(t)
 	ev, _ := st.AddEvidence(model.Evidence{Name: "p.txt", URI: "p.txt"})
-	f, _ := st.AddFact(model.Fact{Kind: "vuln", Title: "已复核", Status: "verified", EvidenceIDs: []string{ev.ID}})
+	f, _ := st.AddFact(model.Fact{Kind: "vuln", Title: "已复核", Status: "unverified", EvidenceIDs: []string{ev.ID}})
+	if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-test"}); err != nil {
+		t.Fatal(err)
+	}
 	g, _ := st.AddGoal(model.Goal{Statement: "拿到 shell"})
 	pinned, err := CompleteGoal(st, g.ID, []string{f.ID}, "复核通过：验证码可跳过，实测可反复试口令")
 	if err != nil {

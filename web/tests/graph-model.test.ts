@@ -45,6 +45,53 @@ function sortedAdjacency(m: Map<string, string[]>): Map<string, string[]> {
   return new Map([...m].map(([k, v]) => [k, [...v].sort()]))
 }
 
+test('a premise is marked blocked unless admission could accept it', () => {
+  const graph = buildGraph(
+    [
+      fact('f_unverified', { kind: 'host', status: 'unverified' }),
+      fact('f_verified', { kind: 'host', status: 'verified' }),
+      // A note can never be a necessary premise, whatever its status says
+      // (model.ReviewableKind): this is the "存在一条边≠已被证明" case.
+      fact('f_note', { kind: 'note', status: 'verified' }),
+    ],
+    [
+      intent({ id: 'in_gated', status: 'pending', from_fact_ids: ['f_unverified'] }),
+      intent({ id: 'in_open', status: 'pending', from_fact_ids: ['f_verified'] }),
+      intent({ id: 'in_note', status: 'pending', from_fact_ids: ['f_note'] }),
+    ],
+    [],
+    undefined,
+    [],
+    {},
+    '',
+    [],
+    [],
+  )
+  const premise = (target: string) =>
+    graph.edges.find((e) => e.target === stepID(target) && e.kind === 'premise')
+  assert.equal(premise('in_gated')?.blocked, true, 'unverified host premise must be blocked')
+  assert.equal(premise('in_open')?.blocked, false, 'verified reviewable premise is a usable gate')
+  assert.equal(premise('in_note')?.blocked, true, 'an unreviewable kind can never satisfy the gate')
+})
+
+test('a premise the snapshot cannot open is marked blocked, not a satisfied gate', () => {
+  const graph = buildGraph(
+    [],
+    [intent({ id: 'in_missing', status: 'pending', from_fact_ids: ['f_missing'] })],
+    [],
+    undefined,
+    [],
+    {},
+    '',
+    [{ id: 'fact:f_missing', state: 'missing' }],
+    [],
+  )
+  const edge = graph.edges.find((e) => e.target === stepID('in_missing') && e.kind === 'premise')
+  assert.equal(edge?.blocked, true, 'a missing premise reference must not look like a satisfied gate')
+  const source = graph.byId.get(edge?.source ?? '')
+  assert.equal(source?.type, 'boundary', 'the missing source is carried as a boundary leaf')
+})
+
 test('pin and reference are distinct relations; the dedupe key carries the kind', () => {
   const graph = buildGraph(
     [fact('f_ref'), fact('f_pin'), fact('f_both')],

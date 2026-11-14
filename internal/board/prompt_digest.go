@@ -62,7 +62,7 @@ func promptDigest(v View) *PromptDigest {
 	// The frontier is not the open set: Build includes held pending directions
 	// there too (it shows why a stopped direction is stopped), so it is counted
 	// from the raw status counts, not from openTotal.
-	frontierTotal := v.Intents.Pending + v.Intents.Claimed + v.Intents.Failed
+	frontierTotal := v.Intents.Pending + v.Intents.Claimed + v.Intents.Failed + v.Intents.ReviewFailed
 	openGoals := v.Goals.Total - v.Goals.Met
 	if openGoals < 0 {
 		openGoals = 0
@@ -73,6 +73,8 @@ func promptDigest(v View) *PromptDigest {
 	add("open_intents", len(v.Open), openTotal)
 	add("held_intents", len(v.Held), v.Intents.Held)
 	add("waiting_intents", len(v.Waiting), v.Intents.Waiting)
+	add("reviewing_intents", len(v.Reviewing), v.Intents.Reviewing)
+	add("review_failed_intents", len(v.ReviewFailed), v.Intents.ReviewFailed)
 	add("running_intents", len(v.Running), v.Intents.Running)
 	add("recent_facts", len(v.RecentFacts), v.Facts.Total)
 	add("done_intents", len(v.Done), v.Intents.Done)

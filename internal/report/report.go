@@ -200,7 +200,7 @@ func (g *Generator) Generate(ctx context.Context) (Meta, error) {
 	// Snapshot() here and froze the instructions later, so a fact or instruction
 	// written in between produced a report whose snapshot, source digest and
 	// checks disagreed about the input the writer actually read (F3/F2).
-	policy := model.PremiseStandard
+	policy := model.PremiseVerifiedOnly
 	scope := ""
 	if g.ScopeFor != nil {
 		scope = g.ScopeFor()

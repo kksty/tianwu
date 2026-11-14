@@ -609,6 +609,10 @@ function UnitRow({ unit, active, onClick }: { unit: Unit; active: boolean; onCli
           >
             前提不成立（{frontier?.blocked_on?.length ?? 0}）
           </span>
+        ) : intent.status === 'reviewing' ? (
+          <span className="min-w-0 flex-1 truncate text-info">固定复核中；通过后才完成</span>
+        ) : intent.status === 'review_failed' ? (
+          <span className="min-w-0 flex-1 truncate text-destructive">复核未通过，可原地重试/续跑</span>
         ) : intent.status === 'failed' ? (
           <span className="min-w-0 flex-1 truncate">已失败</span>
         ) : intent.hold ? (
@@ -1464,10 +1468,12 @@ function groupOf(intent: Intent): GroupKey {
   switch (intent.status) {
     case 'running':
     case 'claimed':
+    case 'reviewing':
       return 'live'
     case 'waiting':
       return 'waiting'
     case 'failed':
+    case 'review_failed':
       return 'failed'
     case 'parked':
       return 'parked'
@@ -1540,12 +1546,14 @@ function intentStateLabel(intent: Intent): string {
   if (intent.status === 'pending' && intent.hold) return '已叫停'
   if (intent.status === 'waiting') return '等子任务'
   if (intent.status === 'running') return '运行中'
+  if (intent.status === 'reviewing') return '固定复核中'
   return statusLabel(intent.status)
 }
 
 /** The one-line state chip on a roster row: small area, semantic tint only. */
 function stateTint(intent: Intent): string {
-  if (intent.status === 'failed') return 'bg-destructive/10 text-destructive'
+  if (intent.status === 'failed' || intent.status === 'review_failed') return 'bg-destructive/10 text-destructive'
+  if (intent.status === 'reviewing') return 'bg-info/10 text-info'
   if (intent.status === 'waiting') return 'bg-warning/10 text-warning'
   if (intent.status === 'running' || intent.status === 'claimed') return 'bg-info/10 text-info'
   if (intent.hold) return 'bg-caution/10 text-caution'
@@ -1557,10 +1565,12 @@ function stateTint(intent: Intent): string {
 function stateDot(intent: Intent): string {
   if (intent.status === 'claimed') return 'animate-pulse bg-info'
   if (intent.status === 'running') return 'animate-pulse bg-success'
+  if (intent.status === 'reviewing') return 'animate-pulse bg-info'
   switch (intent.status) {
     case 'done':
       return 'bg-ink-3/40'
     case 'failed':
+    case 'review_failed':
       return 'bg-destructive'
     case 'parked':
       return 'bg-ink-3/60'

@@ -393,7 +393,7 @@ export function SettingsPage() {
         </div>
 
         <div hidden={section !== 'projects'} role="tabpanel" id="settings-panel-projects" aria-labelledby="settings-tab-projects" className="space-y-4">
-          <Callout tone="info">指挥官与执行者可选同一配置。每个项目独立保存，留空表示跟随实例；这些设置不规定分工或渗透流程。并发仅计算执行者，指挥官、复核和报告不占该名额；自动复核会在运行结算后检查未复核的漏洞或凭据；前提政策决定方向创建/派发时对硬前提的检查强度。</Callout>
+          <Callout tone="info">指挥官与执行者可选同一配置。每个项目独立保存，留空表示跟随实例；这些设置不规定分工或渗透流程。并发仅计算执行者，指挥官、复核和报告不占该名额；所有项目固定 verified_only：成功意图先进入固定复核，新的 vuln/cred 结论通过后才完成，未通过进入 review_failed 可原地重试；旧 standard 清单在加载时自动迁移。</Callout>
           {index.error && (
             <div role="alert">
               <Callout tone="destructive" icon={<TriangleAlert className="h-4 w-4" />}>

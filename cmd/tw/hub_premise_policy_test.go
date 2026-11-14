@@ -39,9 +39,9 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 		return w.Code, out
 	}
 
-	// A project created without a policy reports the effective default.
-	if got := h.info(m.Get(p.ID)).PremisePolicy; got != project.PremisePolicyStandard {
-		t.Fatalf("fresh project premise_policy = %q, want %q", got, project.PremisePolicyStandard)
+	// Every project is verified_only; there is no default standard mode.
+	if got := h.info(m.Get(p.ID)).PremisePolicy; got != project.PremisePolicyVerifiedOnly {
+		t.Fatalf("fresh project premise_policy = %q, want %q", got, project.PremisePolicyVerifiedOnly)
 	}
 
 	code, out := put(h, `{"premise_policy":"verified_only"}`)
@@ -58,7 +58,7 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 		t.Fatalf("a policy-only save cleared the scope: %q", got)
 	}
 
-	// A typo is a 400, never a silent downgrade to standard.
+	// A typo or the removed standard mode is a 400.
 	code, _ = put(h, `{"premise_policy":"sometimes"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("invalid policy = %d, want 400", code)
@@ -95,9 +95,8 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 		t.Fatalf("policy after reopen = %q, want verified_only", got)
 	}
 
-	// A manifest written before the middle mode was removed still stores
-	// "strict". It must read as verified_only through the console's project
-	// view, so an existing operator constraint is never silently weakened.
+	// A legacy standard/strict manifest is migrated to verified_only on load;
+	// the console project view must show the migrated value.
 	path := filepath.Join(p.Dir, project.ManifestFile)
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -128,8 +127,8 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 		t.Fatalf("legacy strict premise_policy = %q, want verified_only", got)
 	}
 
-	// Writing "strict" afresh is a 400, and the legacy manifest stays untouched:
-	// only the next explicit save persists verified_only.
+	// Writing the removed mode afresh is a 400 and does not change the
+	// migrated manifest.
 	code, out = put(legacyHub, `{"premise_policy":"strict"}`)
 	if code != http.StatusBadRequest {
 		t.Fatalf("set strict = %d %v, want 400", code, out)
@@ -141,7 +140,7 @@ func TestUpdateProjectPremisePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(stored), `"premise_policy": "strict"`) {
-		t.Fatalf("rejected strict save rewrote the manifest:\n%s", stored)
+	if !strings.Contains(string(stored), `"premise_policy": "verified_only"`) {
+		t.Fatalf("legacy manifest was not migrated:\n%s", stored)
 	}
 }

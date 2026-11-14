@@ -23,9 +23,7 @@ func TestExplicitWaitPreventsCompletionPause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.PinGoal(g.ID, e.ID, "fixture complete", nil); err != nil {
-		t.Fatal(err)
-	}
+	completeGoal(t, st, g.ID, e.ID)
 	r := NewRunner(st, nil, "")
 	if r.workFinished() {
 		t.Fatal("project considered finished while direction is explicitly waiting")

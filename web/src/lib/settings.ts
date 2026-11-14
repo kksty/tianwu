@@ -37,7 +37,7 @@ export type ProjectSettingsDraft = {
   max_runs: string
   round_timeout: string
   verify_auto: string
-  /** Stored hard-premise admission mode; absent rows read as standard. */
+  /** Stored hard-premise admission mode; there is one value. */
   premise_policy: string
 }
 
@@ -48,7 +48,7 @@ export function projectSettingsDraft(p: ProjectInfo): ProjectSettingsDraft {
     worker_profile: p.worker_profile ?? '', strong_profile: p.strong_profile ?? '',
     max_runs: p.max_runs == null ? '' : String(p.max_runs), round_timeout: p.round_timeout ?? '',
     verify_auto: p.verify_auto == null ? '' : p.verify_auto ? 'on' : 'off',
-    premise_policy: p.premise_policy ?? 'standard',
+    premise_policy: 'verified_only',
   }
 }
 

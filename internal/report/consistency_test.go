@@ -52,12 +52,16 @@ func reportRunFixture(t *testing.T) (st *store.Store, caseRoot string, fact mode
 		t.Fatal(err)
 	}
 	fact, err = st.AddFact(model.Fact{
-		IntentID: "in_1", Kind: "vuln", Title: "/admin 越权", Status: "verified",
+		IntentID: "in_1", Kind: "vuln", Title: "/admin 越权", Status: "unverified",
 		EvidenceIDs: []string{ev.ID}, Origin: model.OriginDeclared,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.ReviewFact(model.Review{FactID: fact.ID, Verdict: "pass", VerifierRun: "run-report-test"}); err != nil {
+		t.Fatal(err)
+	}
+	fact, _ = st.FactByID(fact.ID)
 	return st, caseRoot, fact, ev
 }
 

@@ -67,6 +67,11 @@ func TestAgentTokenSeesOnlyTheBattlefield(t *testing.T) {
 		{http.MethodGet, "/p/p1/api/participants"},
 		{http.MethodGet, "/p/p1/api/state"},
 		{http.MethodPut, "/p/p1/api/state"},
+		// The commander's own global stop request: the one /api/project/ action a
+		// harness session may take. Pause/resume/append-goal stay operator-only.
+		// Visibility is not success: the handler additionally requires a commander
+		// attribution and a live commander round (declarative boundary, D78).
+		{http.MethodPost, "/p/p1/api/project/standby"},
 		{http.MethodGet, "/p/p1/api/model-profiles"},
 		{http.MethodGet, "/api/model-profiles"},
 		{http.MethodGet, "/api/kb?q=smtp"},

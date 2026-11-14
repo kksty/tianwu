@@ -78,7 +78,6 @@ func main() {
 	roundTimeout := flag.Duration("round-timeout", 15*time.Minute,
 		"指挥官单轮墙钟上限：超时按 canceled 截断，下一次唤醒重新决策（0 = 不限）")
 	extraSkills := flag.String("skills", "", "额外的 harness skills，逗号分隔（名字或 SKILL.md 路径）")
-	verifyAuto := flag.Bool("verify-auto", false, "每次运行结束后自动复核 vuln/cred 类事实")
 	consoleToken := flag.String("console-token", "", "控制台登录令牌（默认读 TW_CONSOLE_TOKEN；都不给就自动生成 <data>/console.token）")
 	consoleTokenFile := flag.String("console-token-file", "", "从文件读控制台令牌（避免出现在命令行/进程列表里）")
 	harnessConfig := flag.String("harness-config", "", "harness 用户配置（默认 ~/.cyber/cyber.yaml）；控制台「设置」直接读写它")
@@ -466,7 +465,6 @@ func main() {
 		KB:           kbLib,
 		KBDir:        kbDir,
 		ReportSkills: reportSkills,
-		VerifyAuto:   *verifyAuto,
 		MaxRuns:      *maxRuns,
 		MaxWorkers:   *maxWorkers,
 		// Optional token gate: observation is always on, the refusal is opt-in.

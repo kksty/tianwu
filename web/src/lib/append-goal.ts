@@ -3,10 +3,11 @@
 //
 // Why the action is separate from chat: ordinary messages never resume a paused
 // project. This endpoint appends a NEW independent goal and, only when the
-// project is parked in a resumable stand-by (completion or a manual pause), clears
-// that pause and wakes the commander. A provider fault is refused until a human
-// repairs the key/profile, and waiting work is not a pause at all. The console
-// must show exactly those distinctions instead of guessing from prose.
+// project is parked in a resumable stand-by (completion, a manual pause, or the
+// commander's own stop request), clears that pause and wakes the commander. A
+// provider fault is refused until a human repairs the key/profile, and waiting
+// work is not a pause at all. The console must show exactly those distinctions
+// instead of guessing from prose.
 //
 // The idempotency key belongs to one submitted draft: generated on the first
 // submit, reused by retries after a lost response / failed resume, regenerated
@@ -37,6 +38,7 @@ export const PAUSE_KIND_LABEL: Readonly<Record<string, string>> = {
   waiting_resume: '等待恢复执行',
   completion_standby: '完成待命',
   manual_pause: '人工暂停',
+  commander_standby: '指挥官请求停止',
   provider_fault: '模型/凭据故障暂停',
 }
 

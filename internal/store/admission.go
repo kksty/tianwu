@@ -19,7 +19,7 @@ func (s *Store) StartIntentRun(id, node, owner string, run model.Run) (model.Int
 	if !handoffOwnerMatches(in, owner) {
 		return model.Intent{}, model.Run{}, ErrHandoffConflict
 	}
-	if in.Status != model.StatusPending && in.Status != model.StatusFailed {
+	if in.Status != model.StatusPending && in.Status != model.StatusFailed && in.Status != model.StatusReviewFailed {
 		return model.Intent{}, model.Run{}, fmt.Errorf("intent %s 无法认领（状态为 %s）", id, in.Status)
 	}
 	now := time.Now()

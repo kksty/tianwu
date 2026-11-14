@@ -444,6 +444,32 @@ func TestPurposeAndReviewRunsHaveDistinctCancellationScopes(t *testing.T) {
 	}
 }
 
+// The commander's standby round is not work the pause owns: it asked for the stop
+// and must still finish its answer and delivery checkpoint. Except is the only
+// difference from the operator pause, which cancels every purpose run.
+func TestCancelProjectWorkExceptSparesTheAskingCommanderRun(t *testing.T) {
+	h := newHarness(t)
+	askCtx, cancelAsk := context.WithCancel(context.Background())
+	otherCtx, cancelOther := context.WithCancel(context.Background())
+	releaseAsk := h.svc.TrackPurposeRun("r_commander", cancelAsk)
+	releaseOther := h.svc.TrackPurposeRun("r_report", cancelOther)
+	if n := h.svc.CancelProjectWorkExcept(model.CancelCausePause, "指挥官请求停止项目", "r_commander"); n != 1 {
+		t.Fatalf("project work canceled = %d, want 1", n)
+	}
+	if askCtx.Err() != nil {
+		t.Fatal("the asking commander round was canceled")
+	}
+	if otherCtx.Err() == nil {
+		t.Fatal("the other purpose run survived the stop")
+	}
+	if cause := releaseAsk(); cause != "" {
+		t.Fatalf("asking round cause = %q, want none", cause)
+	}
+	if cause := releaseOther(); cause != model.CancelCausePause {
+		t.Fatalf("other run cause = %q", cause)
+	}
+}
+
 func TestCancelAllCoversIntentPurposeAndReviewRuns(t *testing.T) {
 	h := newHarness(t)
 	in := h.createIntent(t, "全停方向")

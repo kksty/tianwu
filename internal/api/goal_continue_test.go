@@ -89,6 +89,9 @@ func seedStampedGoal(t *testing.T, st *store.Store) model.Goal {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-fixture"}); err != nil {
+		t.Fatal(err)
+	}
 	g, err := st.AddGoal(model.Goal{Statement: "旧目标：拿到一条可复核证据"})
 	if err != nil {
 		t.Fatal(err)

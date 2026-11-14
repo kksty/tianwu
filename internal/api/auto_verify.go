@@ -54,6 +54,12 @@ func (s *Server) SchedulePendingReviews() {
 			s.scheduleAutoVerify(f.IntentID)
 		}
 	}
+	// A fixed-review phase lives in a goroutine, so after a restart (or a pause
+	// that suspended it) nothing owns a direction left in reviewing. Re-arm those
+	// here: the in-flight registry makes this a no-op for phases that are still
+	// alive, and it keeps a crash from being published as a review verdict by the
+	// watchdog simply because no one resumed the phase.
+	s.resumeReviewPhases()
 }
 
 func (s *Server) scheduleAutoVerify(intentID string) {
@@ -195,6 +201,46 @@ func (s *Server) reviewSummary() reviewSummary {
 		}
 	}
 	return out
+}
+
+// premiseReview projects the live review lifecycle for one blocked premise
+// under verified_only. It is a derived classification, not the operator-side
+// queue: it exists so readiness can say "wait" or "ask the operator" without
+// exposing verifier runs, output or the queue itself.
+//
+// Order matters: a disabled verifier or a paused review switch is more
+// actionable than a claim that happens to be busy or cooling, and an
+// unreviewable kind can never be fixed by waiting.
+func (s *Server) premiseReview(f model.Fact) *premiseReview {
+	if f.Status != "unverified" || !model.ReviewableKind(f.Kind) || len(f.EvidenceIDs) == 0 {
+		// No preserved bytes means an independent proof has nothing to replay;
+		// the fact needs evidence (a new assertion), not a review run.
+		return &premiseReview{State: reviewStateIneligible}
+	}
+	if r, ok := model.LatestReviewForClaim(f, s.Store.Reviews(f.ID)); ok && r.Verdict == "needs_evidence" {
+		// The automatic queue stops here (ReviewCandidates skips this version);
+		// the direction is not silently waiting forever: it needs a corrected
+		// assertion or an operator-triggered manual retry.
+		return &premiseReview{State: reviewStateFailed}
+	}
+	if s.Verifier == nil {
+		return &premiseReview{State: reviewStateDisabled}
+	}
+	if s.ReviewsPaused() {
+		return &premiseReview{State: reviewStatePaused}
+	}
+	if s.Verifier.Busy(f.ID) {
+		return &premiseReview{State: reviewStateRunning}
+	}
+	if _, cooling := s.reviewCoolingDown(f, time.Now()); cooling {
+		return &premiseReview{State: reviewStateCooling}
+	}
+	if !s.automaticReviewsEnabled() {
+		// A manual review can still be started by the operator; the session only
+		// needs to know that this fact is not moving on its own.
+		return &premiseReview{State: reviewStateDisabled}
+	}
+	return &premiseReview{State: reviewStateQueued}
 }
 
 const (

@@ -5,6 +5,7 @@
 #   make web       构建控制台前端 -> internal/web/static（产物入库，跑控制面的人不需要 Node）
 #   make run       从源码启动控制台（需先 make harness）
 #   make test      跑全部测试
+#   make race      数据竞争检测（需 cgo/C 工具链；Windows 本机无 gcc 时用 WSL/CI）
 #   make fmt       格式化
 
 BIN     ?= bin
@@ -15,7 +16,7 @@ TAGS    := forceposix emptytemplates noembed osusergo netgo full sqlite
 # `make harness HARNESS_DIR=<路径>` 指过来。
 HARNESS_DIR ?= .build/harness-src
 
-.PHONY: harness web run test fmt clean
+.PHONY: harness web run test race fmt clean
 
 harness:
 	@test -f "$(HARNESS_DIR)/go.mod" || { \
@@ -39,6 +40,18 @@ run:
 
 test:
 	go test ./...
+
+# 数据竞争检测：-race 需要 cgo/C 工具链（Linux gcc / Windows MinGW-w64 gcc）。
+# 缺编译器时给出可读指引，而不是一个难懂的 cgo 错误；CI 跑同一组包。
+RACE_PKGS ?= ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab
+
+race:
+	@command -v "$$(go env CC)" >/dev/null 2>&1 || { \
+	  echo "race 检测需要 C 工具链（cgo）：本机没有 $$(go env CC)。" >&2; \
+	  echo "请用 WSL/Docker/Linux 跑 make race，或看 CI：.github/workflows/race.yml" >&2; \
+	  exit 1; \
+	}
+	CGO_ENABLED=1 go test -race -count=1 -timeout 30m $(RACE_PKGS)
 
 fmt:
 	gofmt -w cmd internal

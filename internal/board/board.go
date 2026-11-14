@@ -40,9 +40,11 @@ type View struct {
 	// Waiting are directions whose turn yielded for child intents. They are not
 	// in Open (nothing should dispatch them) but the commander still needs to
 	// see what the project is blocked on.
-	Waiting     []Item `json:"waiting_intents,omitempty"`
-	Running     []Item `json:"running_intents"`
-	RecentFacts []Item `json:"recent_facts"`
+	Waiting      []Item `json:"waiting_intents,omitempty"`
+	Reviewing    []Item `json:"reviewing_intents,omitempty"`
+	ReviewFailed []Item `json:"review_failed_intents,omitempty"`
+	Running      []Item `json:"running_intents"`
+	RecentFacts  []Item `json:"recent_facts"`
 	// Done is titles only: the decider needs to know what has already been
 	// covered, not the details of it.
 	Done []string `json:"done_intents"`
@@ -160,15 +162,17 @@ type CoverageItem struct {
 }
 
 type Counts struct {
-	Total   int `json:"total"`
-	Pending int `json:"pending"`
-	Held    int `json:"held,omitempty"`
-	Claimed int `json:"claimed"`
-	Running int `json:"running"`
-	Waiting int `json:"waiting,omitempty"`
-	Done    int `json:"done"`
-	Failed  int `json:"failed"`
-	Parked  int `json:"parked"`
+	Total        int `json:"total"`
+	Pending      int `json:"pending"`
+	Held         int `json:"held,omitempty"`
+	Claimed      int `json:"claimed"`
+	Running      int `json:"running"`
+	Waiting      int `json:"waiting,omitempty"`
+	Reviewing    int `json:"reviewing,omitempty"`
+	Done         int `json:"done"`
+	Failed       int `json:"failed"`
+	ReviewFailed int `json:"review_failed,omitempty"`
+	Parked       int `json:"parked"`
 }
 
 type FactStats struct {
@@ -337,6 +341,8 @@ func ForPrompt(v View) View {
 	out.Open = promptItems(v.Open)
 	out.Held = promptItems(v.Held)
 	out.Waiting = promptItems(v.Waiting)
+	out.Reviewing = promptItems(v.Reviewing)
+	out.ReviewFailed = promptItems(v.ReviewFailed)
 	out.Running = promptItems(v.Running)
 	out.RecentFacts = promptItems(v.RecentFacts)
 	// No scoreboard for the player: a visible count of directions opened or
@@ -403,21 +409,23 @@ func BuildFromDB(db store.DB, limit int) View {
 	now := time.Now()
 	emergence := emergenceStats(db, now)
 	v := View{
-		ContentHash: db.ContentHash,
-		GeneratedAt: now,
-		Revision:    db.ReadRevision,
-		Facts:       FactStats{ByKind: map[string]int{}, ByOrigin: map[string]int{}},
-		Goals:       GoalStats{Open: []GoalItem{}},
-		Open:        []Item{},
-		Held:        []Item{},
-		Waiting:     []Item{},
-		Running:     []Item{},
-		RecentFacts: []Item{},
-		Done:        []string{},
-		Frontier:    []FrontierItem{},
-		Ports:       []PortGroup{},
-		Coverage:    []CoverageItem{},
-		Emergence:   &emergence,
+		ContentHash:  db.ContentHash,
+		GeneratedAt:  now,
+		Revision:     db.ReadRevision,
+		Facts:        FactStats{ByKind: map[string]int{}, ByOrigin: map[string]int{}},
+		Goals:        GoalStats{Open: []GoalItem{}},
+		Open:         []Item{},
+		Held:         []Item{},
+		Waiting:      []Item{},
+		Reviewing:    []Item{},
+		ReviewFailed: []Item{},
+		Running:      []Item{},
+		RecentFacts:  []Item{},
+		Done:         []string{},
+		Frontier:     []FrontierItem{},
+		Ports:        []PortGroup{},
+		Coverage:     []CoverageItem{},
+		Emergence:    &emergence,
 	}
 
 	for _, in := range db.Intents {
@@ -438,10 +446,14 @@ func BuildFromDB(db store.DB, limit int) View {
 			v.Intents.Running++
 		case model.StatusWaiting:
 			v.Intents.Waiting++
+		case model.StatusReviewing:
+			v.Intents.Reviewing++
 		case model.StatusDone:
 			v.Intents.Done++
 		case model.StatusFailed:
 			v.Intents.Failed++
+		case model.StatusReviewFailed:
+			v.Intents.ReviewFailed++
 		case model.StatusParked:
 			v.Intents.Parked++
 		}
@@ -452,7 +464,7 @@ func BuildFromDB(db store.DB, limit int) View {
 	if limitDone < 5 {
 		limitDone = 5
 	}
-	for i := len(db.Intents) - 1; i >= 0 && (len(v.Open) < limit || len(v.Held) < limit || len(v.Waiting) < limit || len(v.Running) < limit || len(v.Done) < limitDone); i-- {
+	for i := len(db.Intents) - 1; i >= 0 && (len(v.Open) < limit || len(v.Held) < limit || len(v.Waiting) < limit || len(v.Reviewing) < limit || len(v.ReviewFailed) < limit || len(v.Running) < limit || len(v.Done) < limitDone); i-- {
 		in := db.Intents[i]
 		it := Item{
 			ID:        in.ID,
@@ -509,9 +521,17 @@ func BuildFromDB(db store.DB, limit int) View {
 			if len(v.Waiting) < limit {
 				v.Waiting = append(v.Waiting, it)
 			}
+		case model.StatusReviewing:
+			if len(v.Reviewing) < limit {
+				v.Reviewing = append(v.Reviewing, it)
+			}
 		case model.StatusDone:
 			if len(v.Done) < limitDone {
 				v.Done = append(v.Done, in.Title)
+			}
+		case model.StatusReviewFailed:
+			if len(v.ReviewFailed) < limit {
+				v.ReviewFailed = append(v.ReviewFailed, it)
 			}
 		}
 	}
@@ -530,7 +550,7 @@ func BuildFromDB(db store.DB, limit int) View {
 	for i := len(db.Intents) - 1; i >= 0 && len(v.Frontier) < limit; i-- {
 		in := db.Intents[i]
 		switch in.Status {
-		case model.StatusPending, model.StatusClaimed, model.StatusFailed:
+		case model.StatusPending, model.StatusClaimed, model.StatusFailed, model.StatusReviewFailed:
 		default:
 			continue
 		}
@@ -540,7 +560,7 @@ func BuildFromDB(db store.DB, limit int) View {
 		// wait for work it had itself stopped.
 		fi := FrontierItem{
 			ID: in.ID, Title: in.Title, Status: in.Status,
-			Ready:          in.Status != model.StatusFailed && !in.Hold,
+			Ready:          in.Status != model.StatusFailed && in.Status != model.StatusReviewFailed && !in.Hold,
 			Prerequisites:  len(in.FromFactIDs),
 			NoPremise:      len(in.FromFactIDs) == 0,
 			PremiseChanged: store.PremiseClaimsChanged(in, factsByID),

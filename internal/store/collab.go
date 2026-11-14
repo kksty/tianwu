@@ -292,7 +292,7 @@ func (s *Store) RegisterWait(intentID, runID string, wait model.Wait) (WaitState
 		return WaitState{}, fmt.Errorf("%w：执行轮次已更换", ErrWaitInvalid)
 	}
 	switch in.Status {
-	case model.StatusDone, model.StatusFailed, model.StatusParked:
+	case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 		return WaitState{}, fmt.Errorf("意图 %s 是 %s：不再等待", intentID, in.Status)
 	}
 	if (len(wait.Children) == 0) == (len(wait.Actions) == 0) {

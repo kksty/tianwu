@@ -23,7 +23,7 @@ function project(over: Partial<ProjectInfo> = {}): ProjectInfo {
     max_runs_effective: 0,
     verify_auto: null,
     verify_auto_effective: false,
-    premise_policy: 'standard',
+    premise_policy: 'verified_only',
     ...over,
   }
 }
@@ -34,7 +34,7 @@ test('the settings draft round-trips the brief and the constraint document', () 
   assert.equal(draft.description, '只读优先')
   // The premise policy is part of the same project settings form; an older row
   // without the field reads as the effective default, not as blank.
-  assert.equal(draft.premise_policy, 'standard')
+  assert.equal(draft.premise_policy, 'verified_only')
   assert.equal(projectSettingsDraft(project({ premise_policy: 'verified_only' })).premise_policy, 'verified_only')
   // A project created before the constraint document existed reads as empty,
   // not as a guessed default.
@@ -61,11 +61,9 @@ test('saving the brief or constraints sends only what changed, including an expl
   const briefOnly = { ...previous, scope: '新的简报' }
   assert.deepEqual(projectSettingsPatch(previous, briefOnly), { scope: '新的简报' })
 
-  // The premise policy is saved with the other project defaults, and only when
-  // it actually changed.
-  const verified = { ...previous, premise_policy: 'verified_only' }
-  assert.deepEqual(projectSettingsPatch(previous, verified), { premise_policy: 'verified_only' })
-  assert.deepEqual(projectSettingsPatch(previous, { ...previous, premise_policy: 'standard' }), {})
+  // The single premise policy is never a draft change: it is the project
+  // default, not an editable toggle.
+  assert.deepEqual(projectSettingsPatch(previous, { ...previous, premise_policy: 'verified_only' }), {})
 })
 
 test('a ledger refresh preserves an edited brief while updating untouched fields', () => {

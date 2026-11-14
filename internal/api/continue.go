@@ -86,10 +86,10 @@ func (s *Server) continueIntentRun(id, note string) (string, string, error) {
 		return "", "", &continueError{"continue_conflict", fmt.Sprintf("意图 %s 不存在", id)}
 	}
 	switch in.Status {
-	case model.StatusDone, model.StatusFailed, model.StatusParked:
+	case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 	default:
 		return "", "", &continueError{"continue_conflict",
-			fmt.Sprintf("意图 %s 是 %s，只有 done / failed / parked 的方向可以 continue", id, in.Status)}
+			fmt.Sprintf("意图 %s 是 %s，只有 done / failed / review_failed / parked 的方向可以 continue", id, in.Status)}
 	}
 	var prev model.Run
 	if in.RunID != "" {

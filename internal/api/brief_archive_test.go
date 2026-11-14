@@ -49,6 +49,15 @@ func (e *briefExec) promptAt(i int) string {
 	return e.prompts[i]
 }
 
+// count is the locked way for a waitPoll closure to see whether the run reached
+// the executor. Reading e.prompts directly is a data race: Run appends from the
+// dispatch goroutine while the test polls.
+func (e *briefExec) count() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.prompts)
+}
+
 func TestFreshDispatchArchivesBrief(t *testing.T) {
 	s, p := newBindingServer(t)
 	if err := p.SetNodeBinding([]string{"local"}, "local"); err != nil {

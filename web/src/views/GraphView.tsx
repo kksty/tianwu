@@ -587,9 +587,14 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   const paused = Boolean(board?.project_paused || board?.decider.paused)
   // A finished engagement pauses itself, so the switch reads 「继续项目」. Say why
   // it is paused instead of leaving the operator to guess: the reason is either
-  // "目标已完成" (auto), a provider failure, or the operator's own pause.
+  // "目标已完成" (auto), a provider failure, the operator's own pause, or the
+  // commander's explicit stop request.
   const pauseReason = paused ? (board?.decider.paused_reason ?? '') : ''
   const finished = pauseReason.includes('目标已完成')
+  // Who stopped the project is a machine code, not prose (project_pause_kind):
+  // a commander stop must stay visible in the banner and still be undone only by
+  // the operator's explicit 「继续项目」.
+  const commanderStoodBy = paused && board?.project_pause_kind === 'commander_standby'
 
   // The board counters are a quiet meta line, not chips: label at 11px ink-3,
   // the number mono/tabular at ink-2, groups separated by a hairline. They sit
@@ -629,6 +634,11 @@ export function GraphView({ current, projects, board, onRefresh, loadError }: Pr
   // outline/ghost so the header has one thing to click first.
   const controls = (
     <>
+      {commanderStoodBy && (
+        <Badge size="sm" variant="warning" title={pauseReason} className="shrink-0">
+          指挥官请求停止
+        </Badge>
+      )}
       {finished && (
         <Badge size="sm" variant="success" title={pauseReason} className="shrink-0">
           已完成

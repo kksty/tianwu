@@ -38,7 +38,7 @@ test(
   withFixture(
     async (calls) => {
       const read = await api.premisePolicy()
-      assert.deepEqual(read, { premise_policy: 'standard', effective: 'standard' })
+      assert.deepEqual(read, { premise_policy: 'verified_only', effective: 'verified_only' })
       const saved = await api.savePremisePolicy('verified_only')
       assert.deepEqual(saved, { premise_policy: 'verified_only', effective: 'verified_only' })
       assert.deepEqual(calls, [
@@ -54,7 +54,7 @@ test(
       new Response(
         JSON.stringify(
           calls.length === 1
-            ? { premise_policy: 'standard', effective: 'standard' }
+            ? { premise_policy: 'verified_only', effective: 'verified_only' }
             : { premise_policy: 'verified_only', effective: 'verified_only' },
         ),
       ),
@@ -69,14 +69,14 @@ test(
         assert.ok(error instanceof ApiError)
         assert.equal(error.status, 400)
         assert.equal(error.code, 'premise_policy_invalid')
-        assert.match(error.message, /standard 或 verified_only/)
+        assert.match(error.message, /只能是 verified_only/)
         return true
       })
     },
     () =>
       new Response(
         JSON.stringify({
-          error: 'premise_policy 只能是 standard 或 verified_only（收到 "sometimes"）',
+          error: 'premise_policy 只能是 verified_only（收到 "sometimes"）',
           code: 'premise_policy_invalid',
         }),
         { status: 400 },
@@ -106,18 +106,15 @@ test(
   ),
 )
 
-test('the policy labels and explanations keep the two remaining modes distinct', () => {
-  assert.equal(premisePolicyLabel('standard'), '标准')
+test('the fixed policy label and explanation describe the only mode', () => {
   assert.equal(premisePolicyLabel('verified_only'), '证明优先')
-  assert.equal(premisePolicyLabel(undefined), '—')
+  assert.equal(premisePolicyLabel(undefined), '证明优先')
   assert.equal(premisePolicyLabel('something-else'), 'something-else')
 
-  const standard = premisePolicyHint('standard')
   const verified = premisePolicyHint('verified_only')
-  assert.match(standard, /存在且未被否决/)
   assert.match(verified, /必要前提/)
   assert.match(verified, /核验/)
-  assert.notEqual(standard, verified)
-  // An unknown/empty policy has no invented explanation.
-  assert.equal(premisePolicyHint(undefined), '')
+  assert.match(verified, /固定复核/)
+  // An unknown policy has no invented explanation.
+  assert.equal(premisePolicyHint('something-else'), '')
 })

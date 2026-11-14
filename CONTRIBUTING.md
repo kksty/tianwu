@@ -22,7 +22,7 @@ go vet ./...
 node scripts/check-docs.mjs
 ```
 
-前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型。`internal/web/static` 是入库的嵌入产物，前端源码修改后必须重新构建并一并提交。项目暂不设 CI，提交者需要在本地完成检查；资源不足时可用 `go test -p 1 ./...`。
+前端测试包含纯函数和真实 React 组件的状态回归，不需要运行控制面或调用模型。`internal/web/static` 是入库的嵌入产物，前端源码修改后必须重新构建并一并提交。项目不依赖常规 CI 才能提交，提交者需要在本地完成检查；资源不足时可用 `go test -p 1 ./...`。并发敏感改动（复核结算、调度/唤醒、store 事务、decider）还应在有 C 工具链的环境跑 `make race`（Go race detector，需要 `CGO_ENABLED=1` 与 gcc）；`.github/workflows/race.yml` 在 Linux runner 上跑同一组包。Windows 上没有 gcc 时，可先用 winget 安装 MinGW-w64（`winget install BrechtSanders.WinLibs.POSIX.UCRT`，装完重开终端；`gcc --version` 应输出版本）。装好后有 make 的环境（git-bash/WSL）跑 `make race`；没有 make 就直接跑 `CGO_ENABLED=1 go test -race -count=1 -timeout 30m ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab`。也可以改用 WSL/Docker。
 
 harness 独立维护在 `kksty/cyber-harness` 的 `tianwu/fixes` 分支，构建方式见 [README](README.md)。不要把 harness 源码或二进制复制进本仓库。需要宿主集成测试时，显式设置 `TW_AISCAN_BIN` 指向该二进制；未设置时相关测试跳过。隔离验证及浏览器脚本见[验收说明](scripts/acceptance/README.md)。
 

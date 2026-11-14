@@ -349,11 +349,10 @@ export const api = {
   // strong_profile use "" to clear the project default (inherit the instance
   // active profile). round_timeout: "" inherits --round-timeout, "15m"/"0" set
   // the project's own commander round wall clock (0 = unlimited).
-  // verify_auto: null restores "inherit --verify-auto", true/false pins the
-  // project's own automatic-verification policy (D100). premise_policy is the
-  // project's standard/verified_only admission mode: it is saved with the other
-  // project defaults, not on the execution page. Legacy manifests that still
-  // say strict are read as verified_only.
+  // premise_policy is always verified_only: it is saved with the other project
+  // defaults, not on the execution page. Legacy manifests are migrated on load.
+  // verify_auto is kept in the wire shape for old callers but has no console
+  // switch and no production effect.
   updateProject: (
     id: string,
     body: {
@@ -411,13 +410,10 @@ export const api = {
   peers: () => get<PeerPolicyResponse>(`${pbase()}/api/peers`),
   savePeers: (body: PeerPolicy) => put<PeerPolicyResponse>(`${pbase()}/api/peers`, body),
 
-  // Premise policy: how hard a direction's hard premises must be. standard is
-  // the historical rule (the from_fact exists and is not rejected);
-  // verified_only requires every necessary premise to be a reviewable kind with
-  // a current-claim independent proof and intact originals. Legacy strict
-  // manifests read as verified_only. Operator-only. The response carries the
-  // stored choice plus the effective one so the console never presents an
-  // assumed state as saved.
+  // Premise policy: there is one mode. Every necessary premise must be a
+  // reviewable kind with a current-claim independent proof and intact originals;
+  // legacy standard/strict manifests are migrated when the project loads.
+  // Operator-only. The response carries the stored and effective value.
   premisePolicy: () => get<PremisePolicyResponse>(`${pbase()}/api/premise-policy`),
   savePremisePolicy: (premise_policy: PremisePolicy) =>
     put<PremisePolicyResponse>(`${pbase()}/api/premise-policy`, { premise_policy }),
@@ -473,7 +469,8 @@ export const api = {
     ),
   intentReadiness: (id: string) => get<{
     intent_id: string; policy: string; ready: boolean; integrity_checked?: boolean;
-    premises: { id: string; title?: string; claim_version?: number; status: string; usable: boolean; reason?: string; review_id?: string; verifier_run?: string; integrity: string }[]
+    review_hint?: string;
+    premises: { id: string; title?: string; claim_version?: number; status: string; usable: boolean; reason?: string; review_id?: string; verifier_run?: string; integrity: string; review?: { state: 'queued' | 'running' | 'cooling' | 'paused' | 'failed' | 'ineligible' | 'disabled' } }[]
   }>(`${pbase()}/api/intents/${encodeURIComponent(id)}/readiness`),
   handoffIntent: (id: string, profile: string, note: string, expectedVersion: number) =>
     post<{ intent: Intent; run_id: string }>(

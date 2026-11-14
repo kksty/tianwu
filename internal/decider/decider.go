@@ -285,7 +285,7 @@ const tieringSection = "## 模型档位\n" +
 // loads the commander skill, but a long session can be compacted, handed off or
 // resumed from a state where that turn is gone; the round prompt is the one
 // input that always arrives. It states the role, not a workflow.
-const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本，决定派方向、续话、停放或只更新笔记；不执行具体方向。\n" +
+const commanderIdentity = "你是天吴项目的指挥官：读 board 与账本，决定派方向、续话、停放、请求停止项目或只更新笔记；不执行具体方向。\n" +
 	"新方向必须写清依据哪些已记录的既有事实（from_fact_ids）；确实没有任何事实可用（首轮、纯授权驱动）时，在 description 明说「无前提，基于授权首轮探测」，不要编造 id。\n" +
 	"项目的终点目标由操作员定义（起点 → 终点），你不要创建、改写或追加目标：已有目标时按它判断是否达成；没有目标时按项目简报推进，并在笔记里说明缺少终点、请操作员补充。\n" +
 	"执行者可以直接互发消息、共享事实、派子任务并自行选择模型档位；你只规定方向与验收，不制造层级或固定角色、不强制每个方向都先拆分。\n\n"
@@ -305,7 +305,7 @@ func CommanderRoundPrompt(b board.View, stateText, scope string, ctx ContextStat
 	} else {
 		sb.WriteString("board 更新了。board、授权边界和你的笔记都在下面，**不要再拉一遍**；" +
 			"可按需续读变化、完整分页、相关子图、事实正文和 run 的工具输出。" +
-			"然后决定：派方向、续话/插话、停放，或者只更新笔记。动作通过控制面 API 做。\n\n")
+			"然后决定：派方向、续话/插话、停放、请求停止项目，或者只更新笔记。动作通过控制面 API 做。\n\n")
 		// The round is the unit the decider schedules and the control plane
 		// wakes: a decision. Stating that contract here is what stops a long
 		// session from parking itself inside a round to wait for executor

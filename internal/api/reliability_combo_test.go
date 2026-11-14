@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kksty/tianwu/internal/evidence"
 	"github.com/kksty/tianwu/internal/model"
-	"github.com/kksty/tianwu/internal/project"
 )
 
 // F5: a handoff snapshot records identities, not frozen prose. The brief is
@@ -28,14 +28,32 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	premise, err := f.p.Store.AddFact(model.Fact{
-		IntentID: source.ID, Kind: "vuln", Title: "premise",
-		Summary: "old premise", Origin: model.OriginDeclared,
+	src := filepath.Join(f.p.CaseDir, "in_other", "proof.txt")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("handoff proof"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := evidence.Preserve(f.p.CaseDir, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := f.p.Store.AddEvidence(model.Evidence{
+		IntentID: source.ID, URI: preserved.URI, Digest: preserved.Digest,
+		Size: preserved.Size, Name: "proof.txt",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	premise, err := f.p.Store.AddFact(model.Fact{
+		IntentID: source.ID, Kind: "vuln", Title: "premise",
+		Summary: "old premise", Origin: model.OriginDeclared, EvidenceIDs: []string{ev.ID},
+	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.p.Store.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-old"}); err != nil {
 		t.Fatal(err)
 	}
 	// The handoff snapshot was written while the premise was OLD; only IDs are
@@ -66,12 +84,15 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.p.Store.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-new"}); err != nil {
+		t.Fatal(err)
+	}
 
 	runID, err := f.srv.StartRun(f.ident.IntentID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, 5*time.Second, func() bool { return len(ex.prompts) > 0 })
+	waitFor(t, 5*time.Second, func() bool { return ex.count() > 0 })
 	prompt := ex.promptAt(0)
 	for _, want := range []string{
 		"new premise after handoff",
@@ -105,50 +126,47 @@ func TestHandoffBriefIsRebuiltFromTheFrozenPremise(t *testing.T) {
 }
 
 // F4: the friendly API-side premise check and the async input freeze are two
-// different moments. The freeze transaction re-reads the effective policy and
-// the current claims, so a policy flip in between cannot admit an unreviewed
-// premise; the run records which policy actually applied.
-func TestPolicyFlipBetweenAdmissionAndFreezeIsRecheckedAtFreeze(t *testing.T) {
+// different moments. The freeze transaction re-checks the current claim/proof,
+// so a candidate registered while pending cannot start until it is verified.
+func TestFreezeRechecksThePremiseProof(t *testing.T) {
 	s, p := newBindingServer(t)
-	premise, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "unreviewed premise"})
+	e, err := p.Store.AddEvidence(model.Evidence{URI: "in_owner/proof.txt"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	in, err := p.Store.CreateIntent(model.Intent{Title: "policy race", FromFactIDs: []string{premise.ID}})
+	premise, err := p.Store.AddFact(model.Fact{Kind: "vuln", Title: "unreviewed premise", EvidenceIDs: []string{e.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 1) Under the current (standard) policy the API pre-check succeeds.
-	if got := s.premisePolicy(); got != project.PremisePolicyStandard {
-		t.Fatalf("default policy = %q", got)
+	in, err := p.Store.CreateIntent(model.Intent{Title: "proof race", FromFactIDs: []string{premise.ID}})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if got := s.premisePolicy(); got != model.PremiseVerifiedOnly {
+		t.Fatalf("policy = %q", got)
+	}
+	// Creating the direction is allowed while the reviewable premise is pending;
+	// dispatch preparation is the gate.
 	if err := s.checkPremiseRefs([]string{premise.ID}); err != nil {
-		t.Fatalf("standard admission refused the premise: %v", err)
+		t.Fatalf("candidate admission refused: %v", err)
 	}
 	_, run, err := p.Store.StartIntentRun(in.ID, "local", "", model.Run{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 2) The operator flips to verified_only before the dispatch goroutine
-	// freezes the input.
-	if _, err := p.SetPremisePolicy(project.PremisePolicyVerifiedOnly); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy()); err == nil {
-		t.Fatal("freeze accepted a premise admitted under the previous policy")
+		t.Fatal("freeze accepted an unverified premise")
 	}
 	if saved, _ := p.Store.GetRun(run.ID); saved.PremisePolicy != "" {
 		t.Fatalf("a refused freeze wrote a policy record: %q", saved.PremisePolicy)
 	}
-	// 3) Flipping back admits it, and the row records the policy that applied.
-	if _, err := p.SetPremisePolicy(project.PremisePolicyStandard); err != nil {
+	if _, err := p.Store.ReviewFact(model.Review{FactID: premise.ID, Verdict: "pass", VerifierRun: "run-proof"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := p.Store.PrepareRunInput(run.ID, in, s.premisePolicy()); err != nil {
 		t.Fatal(err)
 	}
-	saved, _ := p.Store.GetRun(run.ID)
-	if saved.PremisePolicy != "standard" || saved.PremiseClaimVersions[premise.ID] != premise.ClaimVersion {
-		t.Fatalf("freeze provenance = %+v", saved)
+	if saved, _ := p.Store.GetRun(run.ID); saved.PremisePolicy != model.PremiseVerifiedOnly {
+		t.Fatalf("frozen policy = %q", saved.PremisePolicy)
 	}
 }

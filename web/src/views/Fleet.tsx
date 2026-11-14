@@ -68,6 +68,7 @@ function runStatus(status: string): StatusKind {
   switch (status) {
     case 'running':
     case 'claimed':
+    case 'reviewing':
       return 'running'
     case 'pending':
     case 'waiting':
@@ -75,6 +76,7 @@ function runStatus(status: string): StatusKind {
     case 'done':
       return 'success'
     case 'failed':
+    case 'review_failed':
       return 'error'
     case 'canceled':
     case 'parked':

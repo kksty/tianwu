@@ -86,9 +86,12 @@ export const CANVAS = {
   ai: '#b388ff',
 } as const
 
-// Red is one meaning only: the executor is running this intent right now
-// (solid edge + marching dashes + a travelling comet). A failed intent is not
-// executing anything, so it gets the ai hue instead of borrowing the live red.
+// Solid red + marching dashes + a travelling comet is the live execution hue.
+// Blue is the hard-gate hue, but only as a *solid* line: a blocked premise is
+// dashed red (gate currently unsatisfied), and a reviewing direction's produced
+// fact edge is dashed blue so it never borrows the gate colour. A failed intent
+// is not executing anything, so it gets the ai hue instead of borrowing the live
+// red.
 export const FACT_COLORS: Record<string, string> = {
   vuln: CANVAS.primary,
   cred: CANVAS.ai,
@@ -103,8 +106,12 @@ export const INTENT_COLORS: Record<string, string> = {
   running: CANVAS.primary,
   claimed: CANVAS.caution,
   pending: CANVAS.warning,
+  // Reviewing keeps the info hue, but edgeStyle draws its intent edges dashed:
+  // a solid blue line must only ever mean "necessary premise" (硬门槛).
+  reviewing: CANVAS.info,
   done: CANVAS.success,
   failed: CANVAS.ai,
+  review_failed: CANVAS.caution,
   parked: CANVAS.ink3,
 }
 
@@ -128,6 +135,10 @@ export const EDGE_COLORS = {
   goal: 'rgba(229,181,60,0.4)',
   spawn: 'rgba(179,136,255,0.75)',
   premise: 'rgba(108,182,255,0.9)',
+  // A premise whose source fact has not passed a review is a blocked gate, not
+  // a normal prerequisite. Red is otherwise the live-execution hue, so this is
+  // a dashed red: "hard gate, currently unsatisfied", not "running".
+  premiseBlocked: 'rgba(242,85,77,0.85)',
   reference: REFERENCE_COLOR,
   pin: PIN_COLOR,
   supports: 'rgba(229,181,60,0.55)',
@@ -178,9 +189,11 @@ function edgeColor(e: GraphEdge): string {
       return EDGE_COLORS.goal
     case 'spawn':
       return EDGE_COLORS.spawn
-    // Blue = a hard prerequisite; a reference must never borrow that colour.
+    // Solid blue = a hard prerequisite; a reference must never borrow that
+    // colour. A blocked gate (unreviewable/unverified/missing source) is dashed
+    // red — never the solid live-execution red.
     case 'premise':
-      return EDGE_COLORS.premise
+      return e.blocked ? EDGE_COLORS.premiseBlocked : EDGE_COLORS.premise
     // Green dashed = a reading choice (reference); green solid double = a pin.
     case 'reference':
       return REFERENCE_COLOR
@@ -192,6 +205,34 @@ function edgeColor(e: GraphEdge): string {
     default:
       return EDGE_COLORS.produced
   }
+}
+
+/** The static visual encoding of one relation: colour plus whether the line
+ *  itself is dashed. `running` intent edges are not `dashed` here: their dashes
+ *  march (animated in the paint loop), which is the live-execution signal. */
+export interface EdgeStyle {
+  color: string
+  dashed: boolean
+}
+
+/**
+ * A relation's colour and line type, as one contract the painter and the legend
+ * both describe. The rules that matter:
+ *   - solid blue is reserved for a necessary premise (the only hard-gate style);
+ *   - a blocked premise (admission would refuse it) is dashed red;
+ *   - a reviewing direction's produced-fact edge is dashed, so a solid blue line
+ *     can never mean two things;
+ *   - references, spawns and goal support are dashed families of their own.
+ */
+export function edgeStyle(e: GraphEdge): EdgeStyle {
+  const intentEdge = e.kind === 'intent'
+  const dashed =
+    (intentEdge && (e.status === 'pending' || e.status === 'parked' || e.status === 'reviewing')) ||
+    (e.kind === 'premise' && Boolean(e.blocked)) ||
+    e.kind === 'spawn' ||
+    e.kind === 'reference' ||
+    e.kind === 'supports'
+  return { color: edgeColor(e), dashed }
 }
 
 /** Horizontal half-extent of the drawn shape: where an edge may touch it. */
@@ -997,7 +1038,7 @@ export function paint(o: PaintOptions) {
     if (!level.shapes) {
       // Dot-level zoom: one straight line, no curve, dashes, arrows or comets.
       ctx.globalAlpha = alpha
-      ctx.strokeStyle = edgeColor(e)
+      ctx.strokeStyle = edgeStyle(e).color
       ctx.lineWidth = (isSel || isHover ? 2 : 1) / Math.max(cam.k, 0.5)
       ctx.setLineDash([])
       ctx.lineDashOffset = 0
@@ -1008,8 +1049,9 @@ export function paint(o: PaintOptions) {
       continue
     }
 
+    const style = edgeStyle(e)
     ctx.globalAlpha = alpha * (fan && !emphasized ? 0.62 : 1)
-    ctx.strokeStyle = edgeColor(e)
+    ctx.strokeStyle = style.color
     ctx.lineWidth =
       (intentEdge
         ? (isSel ? 2.8 : fan ? 1.1 : 1.7)
@@ -1029,11 +1071,7 @@ export function paint(o: PaintOptions) {
                       ? (isSel ? 2 : 1.2)
                       : 1) / Math.max(cam.k, 0.5)
     const running = intentEdge && e.status === 'running'
-    const dashed =
-      (intentEdge && (e.status === 'pending' || e.status === 'parked')) ||
-      kind === 'spawn' ||
-      kind === 'reference' ||
-      kind === 'supports'
+    const dashed = style.dashed
     ctx.setLineDash(
       kind === 'spawn'
         ? [6 / cam.k, 5 / cam.k]
@@ -1088,14 +1126,14 @@ export function paint(o: PaintOptions) {
       ctx.lineTo(curve.tx - Math.cos(ang - 0.4) * size, curve.ty - Math.sin(ang - 0.4) * size)
       ctx.lineTo(curve.tx - Math.cos(ang + 0.4) * size, curve.ty - Math.sin(ang + 0.4) * size)
       ctx.closePath()
-      ctx.fillStyle = edgeColor(e)
+      ctx.fillStyle = style.color
       ctx.fill()
     }
 
     // Travelling comet: the live work visibly moves from context to output.
     if (running && o.motion) {
       const phase = (o.time / 1100 + hashString(e.id) * 0.7) % 1
-      drawComet(ctx, o, curve, phase, edgeColor(e))
+      drawComet(ctx, o, curve, phase, style.color)
     }
   }
   ctx.setLineDash([])
@@ -1135,7 +1173,7 @@ export function paint(o: PaintOptions) {
       width: ctx.measureText(text).width + 10,
       alpha: Math.min(dim(s.id), dim(t.id)),
       priority: isSel ? 0 : isHover ? 1 : 4,
-      color: edgeColor(e),
+      color: edgeStyle(e).color,
       exempt: isSel || isHover,
     })
   }
@@ -1170,7 +1208,7 @@ export function paint(o: PaintOptions) {
       width: ctx.measureText(text).width + 10,
       alpha: Math.min(dim(s.id), dim(t.id)),
       priority: isSel ? 0 : 1,
-      color: edgeColor(e),
+      color: edgeStyle(e).color,
       exempt: true,
     })
   }

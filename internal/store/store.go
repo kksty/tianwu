@@ -200,7 +200,7 @@ func (s *Store) ClaimIntent(id, by string, owner ...string) (model.Intent, bool,
 		if in.ID != id {
 			continue
 		}
-		if in.Status != model.StatusPending && in.Status != model.StatusFailed {
+		if in.Status != model.StatusPending && in.Status != model.StatusFailed && in.Status != model.StatusReviewFailed {
 			return detachIntent(*in), false, nil
 		}
 		if !handoffOwnerMatches(in, firstOwner(owner)) {
@@ -631,7 +631,7 @@ func (s *Store) PinGoal(id, evidenceID, note string, from []string, policies ...
 		return model.Goal{}, fmt.Errorf("盖章必须写理由：说清这些证据为什么足以证明目标达成")
 	}
 	from = cleanIDs(from)
-	policy := model.PremiseStandard
+	policy := model.PremiseVerifiedOnly
 	if len(policies) > 0 {
 		policy = policies[0]
 	}

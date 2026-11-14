@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -72,6 +73,75 @@ func TestProjectPauseSurvivesReopenUntilExplicitResume(t *testing.T) {
 	}
 }
 
+// The pause cause is persisted state too: after a restart the console still has
+// to read "commander requested stop" instead of falling back to the manual-pause
+// default (the runtime classifies from a machine code, never from the reason
+// prose). A plain pause is a transition and keeps the cause; resume clears it;
+// an explicit cause replaces it.
+func TestPauseKindPersistsAcrossRestartAndPlainPause(t *testing.T) {
+	root := t.TempDir()
+	m, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := m.Create("commander stop", "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := p.PauseKindOf(); k != "" {
+		t.Fatalf("a new project has pause kind %q, want empty", k)
+	}
+	if err := p.SetPausedWithKind(true, "commander_standby"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reopen from disk: the machine kind survives with the paused flag.
+	m, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = m.Get(p.ID)
+	if !p.IsPaused() || p.PauseKindOf() != "commander_standby" {
+		t.Fatalf("reopened pause = %v kind %q, want paused commander_standby", p.IsPaused(), p.PauseKindOf())
+	}
+	// A plain pause may not silently reclassify the cause (boot/re-attach paths
+	// call SetPaused(true) without knowing why the project was parked).
+	if err := p.SetPaused(true); err != nil {
+		t.Fatal(err)
+	}
+	m, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = m.Get(p.ID)
+	if k := p.PauseKindOf(); k != "commander_standby" {
+		t.Fatalf("plain pause rewrote pause kind to %q", k)
+	}
+
+	// Resume clears it; a later pause without a cause leaves it empty.
+	if err := p.SetPaused(false); err != nil {
+		t.Fatal(err)
+	}
+	m, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = m.Get(p.ID)
+	if p.IsPaused() || p.PauseKindOf() != "" {
+		t.Fatalf("resume left paused=%v kind=%q", p.IsPaused(), p.PauseKindOf())
+	}
+	if err := p.SetPausedWithKind(true, "completion_standby"); err != nil {
+		t.Fatal(err)
+	}
+	m, err = Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k := m.Get(p.ID).PauseKindOf(); k != "completion_standby" {
+		t.Fatalf("explicit cause after reopen = %q, want completion_standby", k)
+	}
+}
+
 // The whole point of the project layer: two engagements share a process but not
 // a ledger, so a fact declared in one is invisible in the other.
 // The directory is an opaque address, not a summary of the engagement: a name
@@ -90,10 +160,12 @@ func TestProjectDirectoryIDIsOpaqueAndIndependentOfName(t *testing.T) {
 	if a.Name != name {
 		t.Fatalf("display name = %q, want the operator's name verbatim", a.Name)
 	}
-	for _, leak := range []string{"61", "133", "nx", "example", "www"} {
-		if strings.Contains(a.ID, leak) {
-			t.Fatalf("directory id %q leaks the name (%q)", a.ID, leak)
-		}
+	// The id is a random token, not a name-derived slug. Assert the shape, not
+	// the absence of name fragments: a short random hex token can contain "61"
+	// or "133" by chance, so substring checks are not a property of an opaque id
+	// (and made this test fail in roughly one run out of twenty).
+	if !regexp.MustCompile(`^p-[0-9a-f]{8}$`).MatchString(a.ID) {
+		t.Fatalf("directory id %q is not an opaque p-xxxxxxxx token", a.ID)
 	}
 	b, err := m.Create("same name", "scope")
 	if err != nil {

@@ -356,7 +356,7 @@ func (s *Server) hasCapacity() bool {
 // satisfied or whose deadline has passed. It is safe to call from many places:
 // StartRun's claim and the MaxRuns check make a second scheduler a no-op.
 func (s *Server) pump() {
-	if s.premisePolicy() == model.PremiseVerifiedOnly {
+	if s.automaticReviewsEnabled() {
 		s.SchedulePendingReviews()
 	}
 	s.pumpMu.Lock()
@@ -593,14 +593,14 @@ func (s *Server) afterIntentSettled(intentID, runID, runStatus string) {
 func (s *Server) cancelDescendants(id, reason string) {
 	for _, child := range s.Store.Descendants(id) {
 		switch child.Status {
-		case model.StatusDone, model.StatusFailed, model.StatusParked:
+		case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 			continue
 		}
 		if _, err := s.Store.UpdateIntent(child.ID, func(i *model.Intent) {
 			i.Hold = true
 			i.Aborted = true
 			i.Wait = nil
-			if i.Status == model.StatusPending || i.Status == model.StatusWaiting {
+			if i.Status == model.StatusPending || i.Status == model.StatusWaiting || i.Status == model.StatusReviewing {
 				i.Status = model.StatusFailed
 			}
 		}); err != nil {

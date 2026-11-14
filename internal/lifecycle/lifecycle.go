@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"github.com/kksty/tianwu/internal/collab"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -71,12 +72,16 @@ type Options struct {
 	Dispatch func(ctx context.Context, in model.Intent, runID, nodeID string, resume bool, prompt string, keepPrompt bool)
 
 	// Settlement seams keep journal/identity/ingest/prompt in the API.
-	RevokeRun            func(runID string)
-	RemoveRunIdentity    func(intentID, runID string)
-	Redact               func(string) string
-	AfterSettle          func(intentID, runID, status string)
-	WakeDecider          func(reason string)
-	AutoVerify           func(intentID string)
+	RevokeRun         func(runID string)
+	RemoveRunIdentity func(intentID, runID string)
+	Redact            func(string) string
+	AfterSettle       func(intentID, runID, status string)
+	WakeDecider       func(reason string)
+	// ReviewAfterRun is the fixed settlement review: it claims a completed
+	// direction into reviewing and reports true when it owns the wake (the review
+	// completion calls AfterSettle/WakeDecider itself). False means there was
+	// nothing to review and the normal wake path continues.
+	ReviewAfterRun       func(intentID, runID string) bool
 	AfterProviderFailure func(runID, intentID, status string, res executor.Result)
 
 	// Pump is the API scheduler; Recover and the reapers wake it after a fix.
@@ -326,13 +331,25 @@ func (s *Service) CancelAllWithCause(cause, reason string) int {
 // report runs. Verifier runs are deliberately not in this snapshot — a review is
 // an operator-triggered re-proof and has its own switch (D137).
 func (s *Service) CancelProjectWorkWithCause(cause, reason string) int {
+	return s.CancelProjectWorkExcept(cause, reason, "")
+}
+
+// CancelProjectWorkExcept is CancelProjectWorkWithCause with one run excluded.
+// The commander's standby round is the caller: it asked for the project to stop
+// and must still be allowed to finish its answer, so it is not work the pause
+// owns. Every other intent/report run is canceled as usual.
+func (s *Service) CancelProjectWorkExcept(cause, reason, skipRunID string) int {
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.cancels)+len(s.purposeRuns))
 	for id := range s.cancels {
-		ids = append(ids, id)
+		if id != skipRunID {
+			ids = append(ids, id)
+		}
 	}
 	for id := range s.purposeRuns {
-		ids = append(ids, id)
+		if id != skipRunID {
+			ids = append(ids, id)
+		}
 	}
 	s.mu.Unlock()
 	for _, id := range ids {
@@ -626,18 +643,25 @@ func (s *Service) Finish(runID, intentID, status, reason string, res executor.Re
 		// start back on the queue so the retry carries them.
 		s.redeliverPossiblyUnread(intentID, runID)
 	}
+	// Provider auth/quota bookkeeping is independent of the business settlement:
+	// a successful run on a profile must still end that profile's credential
+	// failure episode even when the review phase owns the wake below. Keep it off
+	// the finish path (rebuilding a host takes seconds) and run it exactly once,
+	// before either settlement path.
+	if s.o.AfterProviderFailure != nil {
+		go s.o.AfterProviderFailure(runID, intentID, status, res)
+	}
+	// A successful direction is not done until its new report-bound facts have
+	// been reviewed. The review phase owns the wake: it publishes done or
+	// review_failed after the verdicts, so no commander round or parent waiter
+	// can act on unreviewed conclusions.
+	if status == model.RunDone && outcome.Status == model.StatusDone &&
+		s.o.ReviewAfterRun != nil && s.o.ReviewAfterRun(intentID, runID) {
+		return
+	}
 	go s.o.AfterSettle(intentID, runID, status)
 	if cause != model.CancelCauseActionWait && cause != model.CancelCauseChildWait && cause != model.CancelCauseOperatorWait {
 		s.o.WakeDecider("intent_" + status)
-	}
-	if s.o.AutoVerify != nil {
-		go s.o.AutoVerify(intentID)
-	}
-	// A provider auth/quota failure on a local profile run may rotate its key and
-	// re-dispatch once. It never changes this run's settled status and runs off
-	// the finish path because rebuilding a host takes seconds.
-	if s.o.AfterProviderFailure != nil {
-		go s.o.AfterProviderFailure(runID, intentID, status, res)
 	}
 }
 
@@ -816,11 +840,61 @@ func (s *Service) ReapClaims() {
 	}
 }
 
+// reviewPhaseGrace is the quiet period a reviewing direction gets before the
+// watchdog treats its phase as dead (the goroutine died with the process or lost
+// its host). It is a variable so the recovery test can exercise the expiry
+// without waiting two minutes; production keeps the default.
+var reviewPhaseGrace = 2 * time.Minute
+
 // ReapDanglingIntents repairs the other half of a crash between finish's two
 // writes: a run reached a terminal state, but its intent stayed running.
 func (s *Service) ReapDanglingIntents() {
 	now := time.Now()
 	for _, in := range s.o.Store.ListIntents() {
+		if in.Status == model.StatusReviewing {
+			if s.o.Gates.ReviewsPaused != nil && s.o.Gates.ReviewsPaused.Load() {
+				// A review pause is an operator emergency stop, not a crash. The
+				// phase is suspended (the direction stays reviewing) and
+				// resumeReviewPhases re-arms it; recovery must not turn the pause
+				// into a verdict.
+				continue
+			}
+			// The review goroutine died with the process (or lost its host).
+			// Give a live verifier run time to finish, then publish a retryable
+			// review failure instead of leaving the direction in reviewing forever.
+			if reviewPhaseLive(s.o.Store, in.ID) || now.Sub(in.UpdatedAt) < reviewPhaseGrace {
+				continue
+			}
+			// The interrupted phase still owed these conclusions. Record them,
+			// otherwise a retry run that declares nothing new would flip
+			// review_failed to done without re-reviewing anything.
+			pending := unreviewedConclusionIDs(s.o.Store, in.ID)
+			failedFacts := mergeFactIDs(s.o.Store, in.ReviewFailedFacts, pending)
+			updated, applied, err := s.o.Store.UpdateIntentIfCurrent(in.ID, model.StatusReviewing, in.RunID, func(i *model.Intent) {
+				i.Status = model.StatusReviewFailed
+				i.Hold = false
+				i.Wait = nil
+				i.ReviewFailedFacts = failedFacts
+				i.Notes = append(i.Notes, model.IntentNote{
+					At:   now,
+					Kind: model.IntentNoteReview,
+					Text: "固定复核阶段中断：进程退出或复核宿主丢失；请重试原方向",
+				})
+			})
+			if err != nil {
+				log.Printf("watchdog: 对账复核中的意图 %s 失败：%v", in.ID, err)
+				continue
+			}
+			if applied {
+				log.Printf("watchdog: 意图 %s 的复核阶段已中断，标记 review_failed（%d 条未核验结论待重试）", in.ID, len(failedFacts))
+				go s.o.AfterSettle(updated.ID, updated.RunID, model.RunDone)
+				s.o.WakeDecider("review_recovered")
+				if s.o.Pump != nil {
+					s.o.Pump()
+				}
+			}
+			continue
+		}
 		if in.Status != model.StatusRunning {
 			continue
 		}
@@ -874,6 +948,13 @@ func (s *Service) ReapDanglingIntents() {
 			continue
 		}
 		log.Printf("watchdog: 意图 %s 是 running，但 run %s 已是 %s；对账为 %s", in.ID, in.RunID, run.Status, status)
+		// This is Finish's crash-recovery half. The run already reached RunDone,
+		// so its declared conclusions must pass the same fixed review before the
+		// direction is done; the review phase owns the settlement wake now, and
+		// publishing done here would bypass the gate Finish enforces.
+		if status == model.StatusDone && s.o.ReviewAfterRun != nil && s.o.ReviewAfterRun(in.ID, run.ID) {
+			continue
+		}
 		if delegatedIntent(updated) && updated.Wait == nil {
 			go s.o.AfterSettle(in.ID, run.ID, run.Status)
 			continue
@@ -884,6 +965,59 @@ func (s *Service) ReapDanglingIntents() {
 
 // Apply recovery only to the run and state inspected by the sweep. Dispatch,
 // handoff and cancellation may replace either before the store lock is taken.
+func reviewPhaseLive(st interface {
+	Runs() []model.Run
+}, intentID string) bool {
+	for _, r := range st.Runs() {
+		if r.Purpose == "verifier" && r.IntentID == intentID && r.Status == model.RunRunning {
+			return true
+		}
+	}
+	return false
+}
+
+// unreviewedConclusionIDs is the direction's declared, still-unproven vuln/cred
+// set: the conclusions a fixed review phase owes at settlement. The API keeps the
+// same rule for its settlement review set (settlementReviewFacts); this copy
+// exists because the lifecycle service reconciles a dead phase without the API.
+func unreviewedConclusionIDs(st *store.Store, intentID string) []string {
+	ids := []string{}
+	if st == nil {
+		return ids
+	}
+	for _, f := range st.ListFacts(intentID, 0) {
+		if f.IntentID != intentID || f.Status != "unverified" || f.Origin == model.OriginDerived {
+			continue
+		}
+		switch f.Kind {
+		case "vuln", "cred":
+			ids = append(ids, f.ID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// mergeFactIDs keeps the existing unresolved ids that still resolve and adds the
+// fresh set, deduplicated and sorted: recovery preserves what an earlier
+// review_failed phase recorded and appends what the dead phase still owed.
+func mergeFactIDs(st *store.Store, existing, fresh []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, id := range append(append([]string{}, existing...), fresh...) {
+		if seen[id] {
+			continue
+		}
+		if _, ok := st.FactByID(id); !ok {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (s *Service) recoverInterruptedIntent(in model.Intent, uncount bool) (model.Intent, bool, error) {
 	return s.o.Store.UpdateIntentIfCurrent(in.ID, in.Status, in.RunID, func(i *model.Intent) {
 		i.ClaimedBy = ""

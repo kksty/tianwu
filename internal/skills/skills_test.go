@@ -94,7 +94,7 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	// commander, not to a code count (D97). Completion is the stop rule: when
 	// the goals are stamped and no direction is open, the round noops instead
 	// of inventing more work (D102).
-	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "`PUT /api/state`", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "证明优先模式下完成同样要通过前提准入", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档"} {
+	for _, needle := range []string{"name: commander", "$TW_API", "$TW_API/api/kb", "`PUT /api/state`", "整份重写", "不是轮次日志", "只留对下一轮有价值", "可以自己整份重写或删改", "操作员定义", "说清目标口径怎么被证据满足", "目标是否达成由你", "复核状态不是盖章门槛，但完成同样要通过前提准入", "没有待办、在途方向或显式等待事项", "结束本轮", "可复核的原始证据", "不当作已验证结论或目标完成证明", "不依赖项目是否启用约束文档", "复核是控制面的 support run", "项目里已有事实时", "不要用无前提方向绕过", "没有自动复核开关", "review_failed", "全新资产首触", "会被置为 held", "不要抢跑"} {
 		if !strings.Contains(string(body), needle) {
 			t.Errorf("skill body missing %q", needle)
 		}
@@ -105,7 +105,7 @@ func TestInstallPutsSkillWhereHarnessLooks(t *testing.T) {
 	// commander on a 1M window once warned a worker about "approaching 200k").
 	// The round prompt carries the handoff instruction when the reported usage
 	// actually reaches the line.
-	for _, banned := range []string{"85%", "80%", "150 行", "上下文占用"} {
+	for _, banned := range []string{"85%", "80%", "150 行", "上下文占用", "标准模式"} {
 		if strings.Contains(string(body), banned) {
 			t.Errorf("commander skill must not hardcode context limits: found %q", banned)
 		}

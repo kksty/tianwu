@@ -8,6 +8,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,11 +117,16 @@ func TestDispatchRetriesOnceWithSlimBriefAfterHarnessContextLimit(t *testing.T) 
 	// while keeping the hard sections and the premise pointer.
 	var from []string
 	for i := 0; i < 3; i++ {
+		ev := addEvidenceFile(t, st, s.CaseRoot, fmt.Sprintf("in_src/proof-%d.txt", i), "proof", "text/plain", []byte("proof"))
 		f, err := st.AddFact(model.Fact{
-			Kind: "note", Title: "源观察",
-			Summary: "可选摘要标记" + strings.Repeat("摘要", 60),
+			Kind: "vuln", Title: "源观察",
+			EvidenceIDs: []string{ev.ID},
+			Summary:     "可选摘要标记" + strings.Repeat("摘要", 60),
 		})
 		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-proof"}); err != nil {
 			t.Fatal(err)
 		}
 		from = append(from, f.ID)

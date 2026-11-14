@@ -5,37 +5,20 @@ import (
 	"strings"
 )
 
-// Premise admission modes. Standard is the default when the manifest has no
-// policy: a premise must exist and must not be rejected. VerifiedOnly (证明优先)
-// is the operator's opt-in for high-assurance projects: every necessary premise
-// must be a reviewable kind, verified at its current claim version, with a
-// receipt bound to the current claim and intact original evidence.
-//
-// The middle "strict" mode was removed: standard and verified_only are the only
-// modes now. legacyStrictPremisePolicy survives only as the read-time migration
-// of older manifests (see effectivePremisePolicy) and to name the value a fresh
-// write is rejected with.
-const (
-	PremisePolicyStandard     = "standard"
-	PremisePolicyVerifiedOnly = "verified_only"
+// Premise admission has exactly one mode: verified_only (证明优先). Every
+// necessary premise must be a reviewable kind, verified at its current claim
+// version, with a receipt bound to the current claim and intact original
+// evidence. Legacy standard/strict manifests are migrated to this value when the
+// project is loaded; they are not served as a read-only compatibility mode.
+const PremisePolicyVerifiedOnly = "verified_only"
 
-	// legacyStrictPremisePolicy is the removed middle mode. It is never returned
-	// by a setter: a manifest that still stores it reads as verified_only.
-	legacyStrictPremisePolicy = "strict"
-)
-
-// PremisePolicyView returns the effective premise policy: an absent manifest
-// policy is reported as standard rather than as an empty mode, so callers can
-// show what actually applies.
+// PremisePolicyView is the effective policy. There is no second mode.
 func (p *Project) PremisePolicyView() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return effectivePremisePolicy(p.PremisePolicy)
+	return PremisePolicyVerifiedOnly
 }
 
-// SetPremisePolicy validates and persists the operator's premise admission mode.
-// A typo is an error, never a silent downgrade to standard: the operator asked
-// for a stricter ledger, and quietly ignoring the request would hide it.
+// SetPremisePolicy validates and persists the only supported mode. It is
+// idempotent so a settings card can include the field without a special case.
 func (p *Project) SetPremisePolicy(mode string) (string, error) {
 	normalized, err := NormalizePremisePolicy(mode)
 	if err != nil {
@@ -77,38 +60,18 @@ func (m *Manager) SetPremisePolicy(id, mode string) (string, error) {
 	return normalized, nil
 }
 
-func effectivePremisePolicy(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case PremisePolicyVerifiedOnly:
-		return PremisePolicyVerifiedOnly
-	case legacyStrictPremisePolicy:
-		// The strict mode was removed from the product. Read an existing
-		// manifest that still stores it as verified_only, never as standard:
-		// verified_only is a superset of strict's guarantee (all necessary
-		// reviewable premises must be current-verified), so treating the legacy
-		// value as standard would silently weaken a constraint the operator
-		// chose. The read is effective immediately without rewriting the
-		// manifest; the next explicit settings save persists verified_only, and
-		// NormalizePremisePolicy rejects a fresh "strict" write.
-		return PremisePolicyVerifiedOnly
-	default:
-		return PremisePolicyStandard
-	}
-}
-
 // NormalizePremisePolicy validates an operator-supplied mode before any setter
 // writes it. It is exported for callers that edit several project fields in one
 // request and must reject the whole request before persisting an earlier field.
 func NormalizePremisePolicy(mode string) (string, error) {
 	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case PremisePolicyVerifiedOnly:
+	if mode == PremisePolicyVerifiedOnly {
 		return PremisePolicyVerifiedOnly, nil
-	case PremisePolicyStandard:
-		return PremisePolicyStandard, nil
-	case legacyStrictPremisePolicy:
-		return "", fmt.Errorf("premise_policy 的 strict 模式已移除，旧清单里的 strict 会按 verified_only 读取且本次未改写清单；请改为 standard 或 verified_only（收到 %q）", mode)
+	}
+	switch mode {
+	case "standard", "strict":
+		return "", fmt.Errorf("premise_policy 的 %s 模式已移除：唯一模式是 verified_only；旧项目会在加载时迁移", mode)
 	default:
-		return "", fmt.Errorf("premise_policy 只能是 standard 或 verified_only（收到 %q）", mode)
+		return "", fmt.Errorf("premise_policy 只能是 verified_only（收到 %q）", mode)
 	}
 }

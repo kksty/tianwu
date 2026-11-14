@@ -298,6 +298,17 @@ func agentRouteHidden(path string) bool {
 	if strings.HasSuffix(rest, "/operator/complete") {
 		return true
 	}
+	// The commander's own global stop request is the one project switch a harness
+	// session may reach: a round that judges continuing is wrong must be able to
+	// stop the campaign, not just park a direction and wait to be woken for it.
+	// It is a pause the operator alone can undo (/api/project/pause, resume and
+	// append-goal stay hidden). This gate only admits the path: the handler still
+	// requires a commander attribution (X-Tw-Actor / participant identity) and a
+	// live commander round, and that is a declarative boundary for a trusted
+	// internal session, not a sandbox (D78).
+	if rest == "project/standby" {
+		return false
+	}
 	seg := rest
 	if strings.HasPrefix(rest, "traffic/") {
 		return rest != "traffic/flows" && rest != "traffic/flow"

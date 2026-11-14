@@ -108,6 +108,48 @@ func TestAgentCannotReadOrCancelASupportRun(t *testing.T) {
 	}
 }
 
+// The guard cadence and last wake are control-plane supervision. The commander
+// gets the battlefield, not the watchdog's clock.
+func TestCommanderBoardHidesTheGuardAndHeartbeat(t *testing.T) {
+	s, _ := newBindingServer(t)
+	decode := func(req *http.Request) map[string]any {
+		t.Helper()
+		rec := serveMux(t, s, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("board = %d: %s", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	operator := decode(httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if _, ok := operator["guard"]; !ok {
+		t.Fatal("operator board lost the guard pulse")
+	}
+	commander := decode(harnessRequest(http.MethodGet, "/api/board"))
+	if _, ok := commander["guard"]; ok {
+		t.Fatalf("commander board leaked the guard: %v", commander["guard"])
+	}
+	// The commander sees only the operational state it can act on; every other
+	// decider field (rounds, tokens, uptime, last wake, attention batches, live
+	// activity) is operator supervision and must not cross the boundary (§8).
+	allowed := map[string]bool{"enabled": true, "paused": true, "paused_reason": true}
+	d, ok := commander["decider"].(map[string]any)
+	if !ok {
+		t.Fatalf("commander board lost the decider state: %v", commander["decider"])
+	}
+	for key := range d {
+		if !allowed[key] {
+			t.Fatalf("commander board leaked decider.%s: %v", key, d[key])
+		}
+	}
+	if _, ok := d["enabled"]; !ok {
+		t.Fatalf("commander board must keep decider.enabled: %v", d)
+	}
+}
+
 func TestAgentBoardHidesTheReviewQueue(t *testing.T) {
 	s, _ := newBindingServer(t)
 	s.SetReviewsPaused(true)
@@ -284,8 +326,12 @@ func TestGoalManualPinIsOperatorOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := s.Store.AddEvidence(model.Evidence{URI: "proof.txt"})
+	evidence := addEvidenceFile(t, s.Store, s.CaseRoot, "in_1/proof.txt", "proof.txt", "text/plain", []byte("proof"))
+	support, err := s.Store.AddFact(model.Fact{Kind: "vuln", Title: "支持目标", EvidenceIDs: []string{evidence.ID}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Store.ReviewFact(model.Review{FactID: support.ID, Verdict: "pass", VerifierRun: "run-support"}); err != nil {
 		t.Fatal(err)
 	}
 	pin := func(req *http.Request) *httptest.ResponseRecorder {

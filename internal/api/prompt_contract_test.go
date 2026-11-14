@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -206,15 +207,36 @@ func TestContinuationPromptsDoNotPromiseUnwrittenIndexes(t *testing.T) {
 }
 
 // promptCaptureExec records each prompt without writing a ledger declaration.
+// Run executes on the dispatch goroutine, so the slice is mutex-guarded: tests
+// poll it while the run is still finishing, and an unguarded read is a data race
+// under -race.
 type promptCaptureExec struct {
+	mu      sync.Mutex
 	prompts []string
 }
 
 func (e *promptCaptureExec) Name() string { return "capture" }
 
 func (e *promptCaptureExec) Run(_ context.Context, req executor.Request, _ func(executor.Event)) (executor.Result, error) {
+	e.mu.Lock()
 	e.prompts = append(e.prompts, req.Prompt)
+	e.mu.Unlock()
 	return executor.Result{ExitCode: 0, StopReason: "completed"}, nil
+}
+
+func (e *promptCaptureExec) promptAt(i int) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if i >= len(e.prompts) {
+		return ""
+	}
+	return e.prompts[i]
+}
+
+func (e *promptCaptureExec) count() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.prompts)
 }
 
 // F12.6 (second half): a handoff brief must say the snapshot is a capped index,
@@ -246,10 +268,10 @@ func TestHandoffBriefDoesNotClaimCompleteContext(t *testing.T) {
 		got, ok := st.GetIntent(in.ID)
 		return ok && got.Status == model.StatusDone
 	})
-	if len(ex.prompts) == 0 {
+	if ex.count() == 0 {
 		t.Fatal("handoff brief was never captured")
 	}
-	prompt := ex.prompts[0]
+	prompt := ex.promptAt(0)
 	if !strings.Contains(prompt, handoffIndexNote) {
 		t.Fatalf("handoff brief is missing the index caveat:\n%s", prompt)
 	}

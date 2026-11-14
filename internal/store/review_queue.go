@@ -81,6 +81,13 @@ func (s *Store) ReviewCandidates(intentID, afterID string, limit int, options ..
 		if !eligible || (policy.RequiredOnly && !needed[f.ID]) {
 			continue
 		}
+		// A needs_evidence verdict bound to this claim version is terminal for
+		// the automatic queue: retrying the same bytes buys the same model run.
+		// A corrected assertion (new version) has no matching review and is
+		// eligible again; the operator can still trigger a manual retry.
+		if r, ok := model.LatestReviewForClaim(f, s.db.Reviews); ok && r.Verdict == "needs_evidence" {
+			continue
+		}
 		rows = append(rows, detachFact(f))
 	}
 	if len(rows) == 0 {

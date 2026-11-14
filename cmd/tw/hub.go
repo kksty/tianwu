@@ -208,25 +208,62 @@ func (h *hub) start() {
 // attachBoot is the boot path: it persists the default-paused state first, then
 // builds the runtime from it.
 func (h *hub) attachBoot(p *project.Project) *kit {
-	if !p.IsPaused() {
+	// A cause persisted before the restart still owns the classification: the
+	// forced boot pause must not rewrite "commander requested stop" into the
+	// manual-pause default. A project that was running at boot gets the plain
+	// restart explanation (the API classifies that as a manual pause anyway).
+	wasPaused, kind := p.IsPaused(), p.PauseKindOf()
+	if !wasPaused {
 		if err := p.SetPaused(true); err != nil {
 			log.Printf("project %s: 无法持久化启动暂停状态：%v（本进程仍按暂停启动）", p.ID, err)
 		} else {
 			log.Printf("project %s: 重启后默认暂停，等你点「继续项目」", p.ID)
 		}
 	}
-	return h.attachState(p, true, "重启后项目默认暂停：确认现场后点「继续项目」")
+	k := h.attachState(p, true, "重启后项目默认暂停：确认现场后点「继续项目」")
+	if wasPaused && kind != "" {
+		k.srv.RestorePauseKind(kind)
+	}
+	return k
+}
+
+// Persisted pause causes (internal/project.Manifest.PauseKind): the hub maps the
+// stored machine code to the same operator-facing wording the live pause paths
+// use; a restart must not change why the project says it is paused.
+const (
+	pauseKindCompletionStandby = project.PauseKindCompletionStandby
+	pauseKindCommanderStandby  = project.PauseKindCommanderStandby
+)
+
+func pauseKindReason(kind string) string {
+	switch kind {
+	case pauseKindCommanderStandby:
+		return "指挥官请求停止项目：操作员确认后点「继续项目」"
+	case pauseKindCompletionStandby:
+		return "目标已完成，项目待命：新增目标或点「继续项目」后恢复派发"
+	default:
+		return "操作员暂停了项目：等你点「继续项目」"
+	}
 }
 
 // attach builds a project's runtime from the manifest pause state. Runtime
 // creation (create project, re-open after edits) keeps that state; only the
 // boot path (attachBoot) forces a pause.
 func (h *hub) attach(p *project.Project) *kit {
+	paused := p.IsPaused()
+	kind := ""
 	reason := ""
-	if p.IsPaused() {
-		reason = "操作员暂停了项目：等你点「继续项目」"
+	if paused {
+		kind = p.PauseKindOf()
+		reason = pauseKindReason(kind)
 	}
-	return h.attachState(p, p.IsPaused(), reason)
+	k := h.attachState(p, paused, reason)
+	if paused {
+		// Re-apply the persisted cause to the runtime classifier: the console's
+		// pause badge and append-and-continue switch on it, never on the prose.
+		k.srv.RestorePauseKind(kind)
+	}
+	return k
 }
 
 func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *kit {
@@ -394,7 +431,11 @@ func (h *hub) attachState(p *project.Project, paused bool, pauseReason string) *
 		// fallback for facts whose origin run is gone (docs/14).
 		vf.NodeFor = func(f model.Fact) string { return h.factNode(p, f) }
 		srv.Verifier = vf
-		srv.SetAutoVerify(h.projectVerifyAuto(p))
+		// Reviews are fixed on verified_only projects: new conclusions are
+		// reviewed in the settlement phase, and the pump only handles facts a
+		// downstream direction cites as a necessary premise. There is no
+		// operator auto-review switch (legacy verify_auto values are ignored).
+		srv.SetAutoVerify(false)
 		srv.SchedulePendingReviews()
 		srv.Reports = &report.Generator{
 			ScopeFor: srv.Briefing,
@@ -1393,6 +1434,12 @@ func (h *hub) serveProjects(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+		// New engagements are always proof-first: the standard mode is legacy
+		// read-only for projects created before this rule and can only migrate
+		// to verified_only.
+		if _, err := p.SetPremisePolicy(project.PremisePolicyVerifiedOnly); err != nil {
+			log.Printf("project %s: 设置 verified_only 失败：%v", p.ID, err)
+		}
 		if desc := strings.TrimSpace(req.Description); desc != "" {
 			if err := h.mgr.SetDescription(p.ID, desc); err != nil {
 				log.Printf("project %s: 写描述失败：%v", p.ID, err)
@@ -1569,7 +1616,7 @@ func (h *hub) updateProject(w http.ResponseWriter, r *http.Request, id string) {
 		k.srv.ProjectProfiles = projectProfileDefaults(k.proj)
 		// The review policy is read when a run settles; refresh the snapshot
 		// now so the very next finished run already follows the new setting.
-		k.srv.SetAutoVerify(h.projectVerifyAuto(k.proj))
+		k.srv.SetAutoVerify(false)
 		k.srv.SchedulePendingReviews()
 		// A stricter admission mode changes which queued directions can start;
 		// let the commander re-evaluate them without waiting for the next

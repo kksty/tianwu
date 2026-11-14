@@ -272,18 +272,22 @@ type Server struct {
 	// case directory inside the tree being deleted.
 	deleting atomic.Bool
 	// pauseCause is the structured reason a pause was applied (pauseCauseManual /
-	// pauseCauseCompletion). The manifest only carries the boolean, so without it
-	// an append-and-continue request could only guess from the decider's prose why
-	// the project is parked. It is guarded by controlMu: every pause/resume path
-	// already serialises there, and append-and-continue classifies inside that
-	// same section. A boot attach starts with it empty and is classified from the
-	// persisted flag instead.
+	// pauseCauseCompletion / pauseCauseCommander). It is guarded by controlMu:
+	// every pause/resume path already serialises there, and append-and-continue
+	// classifies inside that same section. The manifest persists the same cause
+	// next to the boolean, and a boot attach restores it, so a restart keeps
+	// saying who stopped the project instead of collapsing to "operator".
 	pauseCause string
 	// persistPaused writes the manifest's paused flag. nil means "write the real
 	// project manifest"; a test injects a failure to prove that a durable write
 	// failure leaves the runtime paused in agreement with the manifest instead of
 	// silently widening the divergence.
 	persistPaused func(bool) error
+	// persistPausedKind persists the pause together with its structured cause, so
+	// a restart still says who stopped the project (manual / completion stand-by
+	// / commander stand-by) instead of collapsing every pause into "operator".
+	// nil falls back to persistPaused or the real manifest.
+	persistPausedKind func(paused bool, kind string) error
 
 	mu       sync.Mutex
 	accessMu sync.Mutex
@@ -302,6 +306,12 @@ type Server struct {
 	// (D124/D137): an operator can stop reviews without resuming the commander,
 	// or keep reviewing while the engagement is paused.
 	reviewsPaused atomic.Bool
+	// reviewPhases tracks the fixed-review phases currently running, keyed by
+	// intent id. A review pause suspends the phase (it must not publish a
+	// verdict), and resuming re-arms the directions that were left in reviewing;
+	// this registry is what keeps a resume from starting a second phase on a
+	// direction whose goroutine is still alive.
+	reviewPhases sync.Map
 	// recent records the successful ledger mutations made through the API
 	// (intent/steer/say/park/cancel/retry/complete/playbook). A commander round
 	// takes the ones recorded while it ran, so the console shows what actually
@@ -592,11 +602,7 @@ func newLifecycle(s *Server, st *store.Store) *lifecycle.Service {
 		WakeDecider: func(reason string) {
 			s.wakeCommanderIfNeeded(reason)
 		},
-		AutoVerify: func(intentID string) {
-			if s.automaticReviewsEnabled() && s.Verifier != nil {
-				s.scheduleAutoVerify(intentID)
-			}
-		},
+		ReviewAfterRun:       s.reviewAfterRun,
 		AfterProviderFailure: s.afterProviderFailure,
 		Pump:                 s.pump,
 		PauseDecider: func(reason string) {
@@ -721,6 +727,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/decider/resume", s.deciderResume)
 	mux.HandleFunc("POST /api/project/pause", s.projectPause)
 	mux.HandleFunc("POST /api/project/resume", s.projectResume)
+	// The commander's own global stop request. It is the one /api/project/ route
+	// the harness surface may reach (cmd/tw auth.agentRouteHidden): a round that
+	// judged the engagement should stop must be able to say so globally, instead
+	// of parking a direction and letting the wake loop spend another round on the
+	// parked result. Resume and append-goal stay operator-only.
+	mux.HandleFunc("POST /api/project/standby", s.projectStandby)
 	// Append a new independent goal and, if the project was parked in a resumable
 	// stand-by, re-arm it. It sits under /api/project/ on purpose: that segment is
 	// operator-only on the harness surface (cmd/tw auth.agentRouteHidden), so an
@@ -777,6 +789,63 @@ type createIntentReq struct {
 	// Profile is the saved model configuration; empty means the instance
 	// default. It runs on the local host.
 	Profile string `json:"profile"`
+}
+
+// bootstrapNeedsOperator distinguishes a genuine first touch from a no-premise
+// direction that would sidestep an open review gate. The control plane cannot
+// parse prose, so it uses recorded entity identities: a direction whose interest
+// entities are all absent from the ledger is new work and is not held; a
+// reference to an entity that already has facts (or no entity identity while the
+// gate is open) is held for the operator.
+func (s *Server) bootstrapNeedsOperator(req createIntentReq) bool {
+	if len(req.FromFactIDs) > 0 {
+		return false
+	}
+	facts := s.Store.Snapshot().Facts
+	if len(facts) == 0 || !s.reviewGateOpen() {
+		return false
+	}
+	refs := make([]string, 0, len(req.InterestEntityRefs))
+	for _, ref := range req.InterestEntityRefs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) == 0 {
+		return true
+	}
+	known := make(map[string]bool, len(facts))
+	for _, f := range facts {
+		if f.EntityRef != "" {
+			known[f.EntityRef] = true
+		}
+	}
+	for _, ref := range refs {
+		if known[ref] {
+			return true
+		}
+	}
+	return false
+}
+
+// reviewGateOpen reports whether some direction is actually waiting on review:
+// a fixed review phase is running, or a dispatchable direction cites an
+// unverified hard premise. Unrelated observations alone do not open a gate.
+func (s *Server) reviewGateOpen() bool {
+	for _, in := range s.Store.ListIntents() {
+		if in.Status == model.StatusReviewing {
+			return true
+		}
+		if in.Status != model.StatusPending || in.Hold {
+			continue
+		}
+		for _, id := range in.FromFactIDs {
+			if f, ok := s.Store.FactByID(id); ok && f.Status == "unverified" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
@@ -841,6 +910,20 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		writePremiseError(w, err)
 		return
 	}
+	// A no-premise direction after facts is only suspicious while there is an
+	// actual review gate to bypass. A completely unrelated new target must not be
+	// held: if every interest entity is absent from the ledger, this is a genuine
+	// first touch and runs normally. A reference to an existing entity, or no
+	// entity identity at all while a gate is open, is held for the operator.
+	bootstrapHeld := harnessSession(r) && s.bootstrapNeedsOperator(req)
+	notes := []model.IntentNote(nil)
+	if bootstrapHeld {
+		notes = append(notes, model.IntentNote{
+			At:   time.Now(),
+			Kind: model.IntentNoteBootstrap,
+			Text: "存在等待复核的前提，且该无前提方向没有证明是新实体首触：需要操作员确认后再派发。若确属新资产，请在 interest_entity_refs 写明账本中尚不存在的实体。",
+		})
+	}
 	in, err := s.Store.CreateIntent(model.Intent{
 		Title:              req.Title,
 		Description:        req.Description,
@@ -854,6 +937,9 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		Skills:             req.Skills,
 		Node:               req.Node,
 		Profile:            req.Profile,
+		Hold:               bootstrapHeld,
+		Bootstrap:          bootstrapHeld,
+		Notes:              notes,
 		// Who created this direction is recorded, not enforced: the operator
 		// and the commander share the console credential (D86), and ownership
 		// checks use DelegatedByRun/participant identity, never this field.
@@ -1000,7 +1086,7 @@ func (s *Server) chatToExecutors(ctx context.Context, text, projectID, idemBase 
 			Status:        in.Status,
 		}
 		switch in.Status {
-		case model.StatusDone, model.StatusFailed, model.StatusParked:
+		case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 			item.Reason = "方向已结束/停放：消息不会复活它；要它收到请先 reopen 再发"
 			skipped = append(skipped, item)
 			continue
@@ -1063,6 +1149,10 @@ func (s *Server) getIntent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
+		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认后派发：会话不能自行清 hold")
+		return
+	}
 	runID, err := s.StartRun(id)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1648,6 +1738,10 @@ func (s *Server) ParkIntent(id, reason string) (model.Intent, error) {
 
 func (s *Server) reopenIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
+		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认：会话不能自行重开")
+		return
+	}
 	in, err := s.ReopenIntent(id)
 	if err != nil {
 		writeErr(w, 409, err.Error())
@@ -1702,7 +1796,7 @@ func (s *Server) CancelIntent(id, reason string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("意图 %s 不存在", id)
 	}
-	if in.Status == model.StatusDone || in.Status == model.StatusParked || in.Status == model.StatusFailed {
+	if in.Status == model.StatusDone || in.Status == model.StatusParked || in.Status == model.StatusFailed || in.Status == model.StatusReviewFailed {
 		return "", fmt.Errorf("意图 %s 已经是 %s：用 retry 或 park，不要 cancel", id, in.Status)
 	}
 	if _, err := s.Store.UpdateIntent(id, func(i *model.Intent) {
@@ -1712,6 +1806,13 @@ func (s *Server) CancelIntent(id, reason string) (string, error) {
 			// Waiting has no run to cancel; failed+Hold is the shape an explicit
 			// retry later picks up. It says "stopped by a human", not "the work
 			// failed on its own", and the hold stops the pump from re-opening it.
+			i.Status = model.StatusFailed
+		}
+		if i.Status == model.StatusReviewing {
+			// The review phase must not publish done/failed over an explicit
+			// operator stop. Its final CAS sees a non-reviewing status and backs
+			// off; the original run already settled successfully, so this is a
+			// human-held failure, not a harness failure.
 			i.Status = model.StatusFailed
 		}
 	}); err != nil {
@@ -1749,6 +1850,10 @@ func (e *retryError) Error() string { return e.msg }
 
 func (s *Server) retryIntent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if in, ok := s.Store.GetIntent(id); ok && in.Bootstrap && harnessSession(r) {
+		writeErr(w, http.StatusForbidden, "无前提首触方向需要操作员确认后派发：会话不能自行清 hold")
+		return
+	}
 	var req struct {
 		Note   string `json:"note"`
 		Resume bool   `json:"resume"`
@@ -1792,7 +1897,7 @@ func (s *Server) retryPreview(w http.ResponseWriter, r *http.Request) {
 		"new_session_redeliver": counts.Fresh,
 	}
 	switch {
-	case in.Status != model.StatusFailed && in.Status != model.StatusPending:
+	case in.Status != model.StatusFailed && in.Status != model.StatusPending && in.Status != model.StatusReviewFailed:
 		out["resume_error"] = "当前状态 " + in.Status + " 不能重试"
 	case in.RunID == "":
 		out["resume_error"] = "没有可续的上一次 run"
@@ -1842,9 +1947,9 @@ func (s *Server) retryIntentRunProfile(id, note string, resume bool, profileOver
 	if !ok {
 		return "", 0, &retryError{"retry_conflict", fmt.Sprintf("意图 %s 不存在", id)}
 	}
-	if in.Status != model.StatusFailed && in.Status != model.StatusPending {
+	if in.Status != model.StatusFailed && in.Status != model.StatusPending && in.Status != model.StatusReviewFailed {
 		return "", 0, &retryError{"retry_conflict",
-			fmt.Sprintf("意图 %s 是 %s，只有 failed 或 pending 的方向可以 retry", id, in.Status)}
+			fmt.Sprintf("意图 %s 是 %s，只有 failed / review_failed / pending 的方向可以 retry", id, in.Status)}
 	}
 	// The note is the decider's commentary for the operator and the next
 	// decision, not an executor constraint. It goes into Intent.Notes, which
@@ -2895,13 +3000,19 @@ func (s *Server) ReviewsPaused() bool { return s.reviewsPaused.Load() }
 
 // SetReviewsPaused flips the review kill switch. It is independent of the
 // project pause: a paused project can still review, and reviews can be paused
-// while the commander keeps working (D137).
+// while the commander keeps working (D137). A pause suspends the fixed-review
+// phases (they publish no verdict), so turning the switch back on must re-arm the
+// directions that were left in reviewing — otherwise an operator's emergency
+// stop would silently strand every direction the phase owned.
 func (s *Server) SetReviewsPaused(paused bool) {
 	if s.Lifecycle != nil {
 		s.Lifecycle.SetReviewsPaused(paused)
-		return
+	} else {
+		s.reviewsPaused.Store(paused)
 	}
-	s.reviewsPaused.Store(paused)
+	if !paused {
+		s.resumeReviewPhases()
+	}
 }
 
 func (s *Server) verifierStatus(w http.ResponseWriter, r *http.Request) {
@@ -3648,7 +3759,7 @@ type boardRunWarnings struct {
 // recentHandoffWarnings returns the latest runs that recorded warnings, newest
 // first. It is bounded so a ledger with many noisy runs cannot grow the board
 // response; the full list stays on each run row.
-func recentHandoffWarnings(st *store.Store, limit int) []boardRunWarnings {
+func recentHandoffWarnings(st *store.Store, limit int, hideSupport bool) []boardRunWarnings {
 	if st == nil || limit <= 0 {
 		return nil
 	}
@@ -3656,6 +3767,12 @@ func recentHandoffWarnings(st *store.Store, limit int) []boardRunWarnings {
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].StartedAt.After(runs[j].StartedAt) })
 	out := make([]boardRunWarnings, 0, limit)
 	for _, r := range runs {
+		// Report/verification warnings are operator-side post-processing: the
+		// commander/executor surface must not learn that these runs exist
+		// (docs/01-architecture.md §8), and a warning names the run.
+		if hideSupport && supportPurpose(r.Purpose) {
+			continue
+		}
 		if len(r.Warnings) == 0 {
 			continue
 		}
@@ -3667,19 +3784,36 @@ func recentHandoffWarnings(st *store.Store, limit int) []boardRunWarnings {
 	return out
 }
 
+// sessionDeciderStatus is the only decider state a harness session sees: the
+// operational facts it can act on (is the commander enabled, is it stopped, why).
+// Everything else in decider.Status — round cadence, wake batches, token and
+// uptime accounting, live activity — is operator supervision (docs §8), so the
+// session response ships a separate shape instead of those fields as zeros.
+type sessionDeciderStatus struct {
+	Enabled      bool   `json:"enabled"`
+	Paused       bool   `json:"paused,omitempty"`
+	PausedReason string `json:"paused_reason,omitempty"`
+}
+
 func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 	v := board.Build(s.Store, 20)
 	st := decider.Status{Enabled: false}
 	if s.Decider != nil {
 		st = s.Decider.Status()
 	}
-	g := guardInfo{IntervalSeconds: int(watchInterval / time.Second)}
-	if s.IdleTimeout > 0 {
-		g.IdleTimeoutSeconds = int(s.IdleTimeout / time.Second)
-	}
-	if n := s.lastWatch.Load(); n > 0 {
-		t := time.Unix(0, n)
-		g.LastTickAt = &t
+	// The guard is control-plane supervision: cadence, idle sweep and last tick
+	// are operator-visible, never part of a commander/executor's battlefield.
+	var guard *guardInfo
+	if !harnessSession(r) {
+		g := guardInfo{IntervalSeconds: int(watchInterval / time.Second)}
+		if s.IdleTimeout > 0 {
+			g.IdleTimeoutSeconds = int(s.IdleTimeout / time.Second)
+		}
+		if n := s.lastWatch.Load(); n > 0 {
+			t := time.Unix(0, n)
+			g.LastTickAt = &t
+		}
+		guard = &g
 	}
 	// Review/report queue state is operator-side post-processing: the commander
 	// and executors only see facts and their review verdicts, not the queue that
@@ -3688,12 +3822,29 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 	if !harnessSession(r) {
 		reviews = s.reviewSummary()
 	}
+	// Pause kind is a machine code, not prose: the console must not infer "who
+	// paused" from the reason text. Only a paused board pays for the
+	// classification (projectState takes controlMu and reads the decider status).
+	projectPaused := s.paused.Load()
+	pauseKind := ""
+	if projectPaused {
+		if ps := s.projectState(); ps.Paused {
+			pauseKind = ps.Kind
+		} else {
+			projectPaused = false
+		}
+	}
+	deciderView := any(st)
+	if harnessSession(r) {
+		deciderView = sessionDeciderStatus{Enabled: st.Enabled, Paused: st.Paused, PausedReason: st.PausedReason}
+	}
 	writeJSON(w, 200, struct {
 		board.View
-		Decider       decider.Status   `json:"decider"`
-		ProjectPaused bool             `json:"project_paused"`
-		Guard         guardInfo        `json:"guard"`
-		Usage         board.TokenUsage `json:"usage"`
+		Decider          any              `json:"decider"`
+		ProjectPaused    bool             `json:"project_paused"`
+		ProjectPauseKind string           `json:"project_pause_kind,omitempty"`
+		Guard            *guardInfo       `json:"guard,omitempty"`
+		Usage            board.TokenUsage `json:"usage"`
 		// Digest is the value the decider compares with its last round
 		// (board.Digest). The console shows it next to that stored digest, so an
 		// operator can tell "the board changed, a round is due" from "nothing
@@ -3704,11 +3855,12 @@ func (s *Server) getBoard(w http.ResponseWriter, r *http.Request) {
 		// is on each run in /api/runs (task-17).
 		HandoffWarnings []boardRunWarnings `json:"handoff_warnings,omitempty"`
 		Reviews         reviewSummary      `json:"reviews"`
-	}{View: v, Decider: st, ProjectPaused: s.paused.Load(), Guard: g,
+	}{View: v, Decider: deciderView, ProjectPaused: projectPaused, ProjectPauseKind: pauseKind,
+		Guard: guard,
 
 		Usage:           board.Tokens(s.Store, time.Now()),
 		Digest:          board.Digest(v),
-		HandoffWarnings: recentHandoffWarnings(s.Store, 5), Reviews: reviews})
+		HandoffWarnings: recentHandoffWarnings(s.Store, 5, harnessSession(r)), Reviews: reviews})
 }
 
 func (s *Server) triggerDecide(w http.ResponseWriter, r *http.Request) {
@@ -3782,7 +3934,7 @@ func (s *Server) projectPause(w http.ResponseWriter, r *http.Request) {
 		s.Decider.Pause()
 	}
 	canceled := s.CancelProjectWorkWithCause(model.CancelCausePause, "项目暂停：停止运行与指挥官；复核有自己的开关（D137）")
-	if err := s.setProjectPaused(true); err != nil {
+	if err := s.setProjectPausedKind(true, pauseKindManualPause); err != nil {
 		writeErr(w, http.StatusInternalServerError, "本次运行已暂停，但无法保存暂停状态："+err.Error())
 		return
 	}
@@ -3791,6 +3943,108 @@ func (s *Server) projectPause(w http.ResponseWriter, r *http.Request) {
 		out["decider"] = s.Decider.Status()
 	}
 	writeJSON(w, 200, out)
+}
+
+// commanderClaim reports whether a request states the commander role. The
+// project mux authenticates every harness session with the same derived token,
+// so the gate can only see "a session"; the caller must either carry the
+// commander's per-run identity or use the explicit actor claim the mailbox path
+// already uses. The standby handler additionally requires a live commander round
+// to attribute the request to, which an executor session does not have.
+func commanderClaim(r *http.Request) bool {
+	if id, ok := identityOf(r); ok && id.ParticipantID == collab.CommanderID {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Tw-Actor")), collab.CommanderID)
+}
+
+// projectStandby is the commander's explicit "stop this engagement" action. The
+// operator's switch is projectPause; a commander round that judges the engagement
+// should stop needs the same global stop, otherwise it can only park directions
+// and the ledger keeps waking it for the parked result. That is the exact waste
+// an unreachable-target project hit: it had already decided to stop, replied to
+// the operator and parked its only direction, and the next round still ran only
+// to conclude "nothing to do".
+//
+// It is a real pause, not a hidden quiet flag: the dispatch gate closes, the
+// decider stops taking rounds, executing directions are canceled and the
+// manifest keeps paused=true across a restart. Resume stays operator-only — the
+// agent surface never exposes projectResume or append-goal.
+//
+// The asking round finishes normally: it is excluded from the cancellation
+// snapshot and Runner.StandbyFor does not cancel it, so its answer, state.md
+// update and delivery checkpoint still land. The commission and the console show
+// why the project is parked (pause_kind=commander_standby), and the operator's
+// explicit 继续项目 is the only way back.
+func (s *Server) projectStandby(w http.ResponseWriter, r *http.Request) {
+	if !harnessSession(r) {
+		writeErr(w, http.StatusForbidden, "只有指挥官会话可以请求停止项目；操作员请用 /api/project/pause")
+		return
+	}
+	// Every harness session carries the same derived agent token, so the auth
+	// gate can only classify "a session", never "the commander". A global stop
+	// belongs to the commander (docs §2/§6): require the commander claim and a
+	// live commander round the request can be attributed to. An executor has
+	// neither. This is a claimed-role boundary for trusted sessions, not a
+	// sandbox (D78); the operator's pause route stays separate.
+	if !commanderClaim(r) {
+		writeErr(w, http.StatusForbidden, "全局停止只能由指挥官轮次请求；执行者请把判断交回指挥官")
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req)
+	detail := clipRunes(req.Reason, 300)
+	reason := "指挥官请求停止项目"
+	if detail != "" {
+		reason += "：" + detail
+	} else {
+		reason += "：等待操作员确认后继续"
+	}
+
+	s.controlMu.Lock()
+	defer s.controlMu.Unlock()
+	if s.paused.Load() {
+		// Pause is already in effect (another pause path won the race): the
+		// commander's request is satisfied, and its cause is not overwritten.
+		out := map[string]any{"paused": true, "already_paused": true}
+		if s.Decider != nil {
+			out["decider"] = s.Decider.Status()
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	// The stop must be attributable to the round that asked for it: checking
+	// before the gate flips keeps a stray request from parking the project with
+	// no session to explain it.
+	run, live := s.liveCommanderRun()
+	if !live {
+		writeErr(w, http.StatusConflict, "没有进行中的指挥官轮次：全局停止只能由发起请求的那一轮认定")
+		return
+	}
+	// The structured cause is recorded before the gate flips, like projectPause:
+	// a reader that sees paused=true must never have to wait for the cause.
+	s.pauseCause = pauseCauseCommander
+	s.SetPaused(true)
+	// This round asked for the stop; cutting it would discard the very answer
+	// and checkpoint that make the stop auditable.
+	skip := run.ID
+	if s.Decider != nil {
+		s.Decider.StandbyFor(reason)
+	}
+	canceled := s.CancelProjectWorkExcept(model.CancelCausePause, reason, skip)
+	s.recordAction("standby", "", reason)
+	if err := s.setProjectPausedKind(true, pauseKindCommanderStandby); err != nil {
+		writeErr(w, http.StatusInternalServerError, "项目已进入停止状态，但无法保存暂停："+err.Error())
+		return
+	}
+	log.Printf("指挥官请求停止项目：%s（跳过本轮 run %s，取消 %d 个在跑 run）", detail, skip, canceled)
+	out := map[string]any{"paused": true, "canceled": canceled, "reason": reason}
+	if s.Decider != nil {
+		out["decider"] = s.Decider.Status()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // AutoPause pauses a project whose chartered work is complete. It is the
@@ -3821,7 +4075,7 @@ func (s *Server) AutoPause(reason string) {
 		s.Decider.PauseFor(reason)
 	}
 	canceled := s.CancelProjectWorkWithCause(model.CancelCausePause, reason)
-	if err := s.setProjectPaused(true); err != nil {
+	if err := s.setProjectPausedKind(true, pauseKindCompletionStandby); err != nil {
 		log.Printf("项目自动暂停：本次已暂停，但保存暂停状态失败：%v", err)
 	}
 	log.Printf("项目自动暂停：%s（取消 %d 个在跑 run）", reason, canceled)
@@ -3832,13 +4086,39 @@ func (s *Server) AutoPause(reason string) {
 // exists for tests: a durable write failure must leave the runtime pause and the
 // manifest saying the same thing instead of silently diverging.
 func (s *Server) setProjectPaused(paused bool) error {
+	return s.setProjectPausedKind(paused, "")
+}
+
+// setProjectPausedKind persists the pause with its structured cause. The kind is
+// what survives a control-plane restart: "commander requested stop" must not
+// come back as "the operator paused the project". An empty kind when pausing
+// keeps whatever the manifest already carries (a pause is a transition, not a
+// reclassification); resuming always clears it.
+func (s *Server) setProjectPausedKind(paused bool, kind string) error {
+	if s.persistPausedKind != nil {
+		return s.persistPausedKind(paused, kind)
+	}
 	if s.persistPaused != nil {
 		return s.persistPaused(paused)
 	}
 	if s.Project == nil {
 		return nil
 	}
-	return s.Project.SetPaused(paused)
+	return s.Project.SetPausedWithKind(paused, kind)
+}
+
+// RestorePauseKind re-applies the persisted pause cause after a boot attach. The
+// console's pause badge and append-and-continue both classify from the runtime
+// cause, so without this a restart would relabel a commander stop as manual.
+func (s *Server) RestorePauseKind(kind string) {
+	switch kind {
+	case pauseKindCommanderStandby:
+		s.pauseCause = pauseCauseCommander
+	case pauseKindCompletionStandby:
+		s.pauseCause = pauseCauseCompletion
+	case pauseKindManualPause:
+		s.pauseCause = pauseCauseManual
+	}
 }
 
 // resumeProjectRuntimeLocked re-arms the runtime after the manifest write has
@@ -3859,7 +4139,7 @@ func (s *Server) resumeProjectRuntimeLocked() {
 func (s *Server) projectResume(w http.ResponseWriter, r *http.Request) {
 	s.controlMu.Lock()
 	defer s.controlMu.Unlock()
-	if err := s.setProjectPaused(false); err != nil {
+	if err := s.setProjectPausedKind(false, ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "无法保存继续状态，项目保持暂停："+err.Error())
 		return
 	}
@@ -3977,6 +4257,16 @@ func (s *Server) CancelAllWithCause(cause, reason string) int {
 // delete use CancelAllWithCause and do stop reviews.
 func (s *Server) CancelProjectWorkWithCause(cause, reason string) int {
 	return s.Lifecycle.CancelProjectWorkWithCause(cause, reason)
+}
+
+// CancelProjectWorkExcept is the commander-standby variant: the run that asked
+// for the stop is excluded, because it must finish its answer and its own
+// delivery checkpoint. See Lifecycle.CancelProjectWorkExcept.
+func (s *Server) CancelProjectWorkExcept(cause, reason, skipRunID string) int {
+	if s.Lifecycle == nil {
+		return 0
+	}
+	return s.Lifecycle.CancelProjectWorkExcept(cause, reason, skipRunID)
 }
 
 // CancelReviewsWithCause stops the live reviews only; project work is untouched.

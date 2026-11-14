@@ -93,6 +93,20 @@ function EmptyLine({ children }: { children: ReactNode }) {
   )
 }
 
+const REVIEW_STATE_LABELS: Record<string, string> = {
+  queued: '复核排队中',
+  running: '复核进行中',
+  cooling: '复核冷却中',
+  paused: '复核已暂停',
+  failed: '复核未通过，需补证据/修正',
+  disabled: '复核未启用',
+  ineligible: '不可独立复核',
+}
+
+function reviewStateLabel(state: string): string {
+  return REVIEW_STATE_LABELS[state] ?? state
+}
+
 export function GraphNodePanel(props: Parameters<typeof NodeWorkspace>[0]) {
   // Detail reads, drafts and confirmation dialogs belong to one selected
   // node. Retire them together before rendering a different record.
@@ -160,6 +174,8 @@ function NodeWorkspace({
   const [preview, setPreview] = useState<PreviewFile | null>(null)
 
   const intent = node.meta?.intent
+  const reviewNotes = intent?.notes?.filter((n) => n.kind === 'review') ?? []
+  const latestReviewNote = reviewNotes.length > 0 ? reviewNotes[reviewNotes.length - 1] : undefined
   const goal = node.meta?.goal
   const fact = node.meta?.fact
   // What this direction's latest executor run actually read, frozen at dispatch.
@@ -301,13 +317,22 @@ function NodeWorkspace({
                   <div key={p.id} className="text-[12px]">
                     <button className="text-left underline underline-offset-2" onClick={() => onSelectFact(p.id)}>{p.title || p.id}</button>
                     <span> · 断言 v{p.claim_version ?? '?'} · {p.usable ? '准入通过' : p.reason}</span>
+                    {p.review?.state && <span className="text-ink-3"> · {reviewStateLabel(p.review.state)}</span>}
                     {p.review_id && <div className="text-ink-3">独立核验收据已绑定本版断言；原件完整性另行检查。</div>}
                   </div>
                 ))}
               </div>
+              {readiness.data.review_hint && <div className="mt-2 text-[11px] text-ink-2">{readiness.data.review_hint}</div>}
             </Callout>
           )}
           {readiness.error && <Callout tone="warning" className="leading-relaxed">暂时无法核对前提，请刷新后再决定是否执行。</Callout>}
+          {intent?.status === 'review_failed' && latestReviewNote && (
+            <Callout tone="warning" className="leading-relaxed">
+              <div className="text-[12px] font-semibold">最近一次复核未通过</div>
+              <div className="tw-break mt-1 text-[11px] leading-relaxed">{latestReviewNote.text}</div>
+              <div className="mt-1 text-[11px] text-ink-3">以事实当前断言版本的最新复核 verdict 为准；旧备注只作历史。可在原意图上重试/续跑。</div>
+            </Callout>
+          )}
 
           {fact && (
             <Section title="事实">
@@ -556,15 +581,15 @@ function NodeWorkspace({
             </Section>
           )}
 
-          {/* 重派/续话备注：给操作员和下一轮决策看的历史，不是执行者约束。
+          {/* 重派/续话/复核备注：给操作员和下一轮决策看的历史，不是执行者约束。
               它不在 intent.doc 里，派发提示词也不读（D72）。 */}
           {intent?.notes && intent.notes.length > 0 && (
-            <Section title={`重派/续话备注（${intent.notes.length}）`}>
+            <Section title={`备注（重派/续话/复核，${intent.notes.length}）`}>
               {intent.notes.map((n, i) => (
                 <div key={`${n.at}:${i}`} className="rounded-lg border border-hairline px-2.5 py-2">
                   <div className="flex items-center gap-1.5 text-[11px] text-ink-3">
-                    <Badge size="sm" variant={n.kind === 'retry' ? 'warning' : 'info'}>
-                      {n.kind === 'retry' ? '重派' : n.kind === 'steer' ? '续话' : n.kind}
+                    <Badge size="sm" variant={n.kind === 'retry' || n.kind === 'review' || n.kind === 'bootstrap' ? 'warning' : 'info'}>
+                      {n.kind === 'retry' ? '重派' : n.kind === 'steer' ? '续话' : n.kind === 'review' ? '复核' : n.kind === 'bootstrap' ? '首触确认' : n.kind}
                     </Badge>
                     <span className="tw-nums font-mono">{fmtTime(n.at)}</span>
                     {n.ref_fact && <span className="ml-auto truncate font-mono">依据 {n.ref_fact}</span>}
@@ -735,7 +760,7 @@ function NodeWorkspace({
                 <RotateCcw className="h-3.5 w-3.5" /> 重开
               </Button>
             )}
-            {intent && (intent.status === 'failed' || intent.status === 'pending') && (
+            {intent && (intent.status === 'failed' || intent.status === 'review_failed' || intent.status === 'pending') && (
               <Button
                 size="xs"
                 variant="outline"
@@ -746,7 +771,7 @@ function NodeWorkspace({
                 <RefreshCw className="h-3.5 w-3.5" /> 重试
               </Button>
             )}
-            {intent && (intent.status === 'done' || intent.status === 'parked') && (
+            {intent && (intent.status === 'done' || intent.status === 'review_failed' || intent.status === 'parked') && (
               <Button
                 size="xs"
                 variant="outline"
@@ -925,7 +950,7 @@ function NodeWorkspace({
 }
 
 function isnStatus(s: string): boolean {
-  return ['pending', 'claimed', 'running', 'done', 'failed', 'parked', 'unverified', 'verified', 'rejected'].includes(s)
+  return ['pending', 'claimed', 'running', 'waiting', 'reviewing', 'done', 'failed', 'review_failed', 'parked', 'unverified', 'verified', 'rejected'].includes(s)
 }
 
 export default GraphNodePanel

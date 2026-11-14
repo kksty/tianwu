@@ -149,6 +149,7 @@ test('the success receipt distinguishes duplicate, resumed and woken outcomes', 
 test('pause kinds map to explicit labels and unknown codes stay literal', () => {
   assert.equal(pauseKindLabel('completion_standby'), '完成待命')
   assert.equal(pauseKindLabel('manual_pause'), '人工暂停')
+  assert.equal(pauseKindLabel('commander_standby'), '指挥官请求停止')
   assert.equal(pauseKindLabel('waiting_human'), '等待人工')
   assert.equal(pauseKindLabel('provider_fault'), '模型/凭据故障暂停')
   assert.equal(pauseKindLabel('some_new_state'), 'some_new_state')

@@ -30,9 +30,7 @@ func TestWaitingDirectionsBlockCompletionWithoutHeartbeatSpin(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := st.PinGoal(g.ID, e.ID, "fixture complete", nil); err != nil {
-				t.Fatal(err)
-			}
+			completeGoal(t, st, g.ID, e.ID)
 			in, err := st.CreateIntent(model.Intent{Title: "waiting direction"})
 			if err != nil {
 				t.Fatal(err)
@@ -113,9 +111,7 @@ func TestWaitResumedIntoRunningKeepsProjectOpen(t *testing.T) {
 	st := newStore(t)
 	g, _ := st.AddGoal(model.Goal{Statement: "goal"})
 	e, _ := st.AddEvidence(model.Evidence{URI: "fixture.txt"})
-	if _, err := st.PinGoal(g.ID, e.ID, "done", nil); err != nil {
-		t.Fatal(err)
-	}
+	completeGoal(t, st, g.ID, e.ID)
 	in, _ := st.CreateIntent(model.Intent{Title: "direction"})
 	if _, err := st.UpdateIntent(in.ID, func(i *model.Intent) {
 		i.Status = model.StatusWaiting

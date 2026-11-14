@@ -76,7 +76,11 @@ func TestTaskContextUpdateRequiresTheCurrentRun(t *testing.T) {
 // context record versions and the hard premises.
 func TestDispatchFreezesClaimAndContextVersions(t *testing.T) {
 	s := open(t)
-	premise, _ := s.AddFact(model.Fact{Title: "前提"})
+	e, err := s.AddEvidence(model.Evidence{URI: "in_1/proof.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	premise := verifiedSupport(t, s, e.ID, "前提")
 	ref, _ := s.AddFact(model.Fact{Title: "参考"})
 	pin, _ := s.AddFact(model.Fact{Title: "固定"})
 	in, _ := s.CreateIntent(model.Intent{Title: "task", FromFactIDs: []string{premise.ID}})
@@ -89,7 +93,7 @@ func TestDispatchFreezesClaimAndContextVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseStandard); err != nil {
+	if _, err := s.PrepareRunInput(run.ID, in, model.PremiseVerifiedOnly); err != nil {
 		t.Fatal(err)
 	}
 	saved, _ := s.GetRun(run.ID)

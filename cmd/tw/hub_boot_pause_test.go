@@ -82,6 +82,55 @@ func TestStartPausesEverySavedProject(t *testing.T) {
 	}
 }
 
+// A commander-requested stop is a pause with a cause. A control-plane restart
+// must not relabel it as an operator pause: the console's badge and the
+// append-and-continue contract both switch on the persisted machine code, and
+// "who stopped the engagement" is exactly the question the operator asks first.
+func TestCommanderStandbyPauseKindSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := mgr.Create("acme", "acme.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.SetPausedWithKind(true, project.PauseKindCommanderStandby); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := &hub{cfg: hubConfig{Nodes: &node.Registry{}}, mgr: mgr, ctx: ctx, kits: map[string]*kit{}}
+	h.start()
+
+	k := h.kits[p.ID]
+	if k == nil || k.dec == nil {
+		t.Fatal("boot did not attach the paused project")
+	}
+	if !k.dec.Paused() {
+		t.Fatal("commander is not paused after restart")
+	}
+	// The runtime cause must be restored from the manifest, not guessed from prose.
+	rec := httptest.NewRecorder()
+	k.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("board = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"project_pause_kind":"commander_standby"`) {
+		t.Fatalf("board lost the commander pause kind: %s", rec.Body.String())
+	}
+	// The boot pause write must not overwrite the persisted cause either.
+	reopened, err := project.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Get(p.ID).PauseKindOf(); got != project.PauseKindCommanderStandby {
+		t.Fatalf("persisted pause kind = %q after boot, want %q", got, project.PauseKindCommanderStandby)
+	}
+}
+
 // Runtime attachment (creating a project, re-opening it after edits) keeps the
 // manifest state: only the boot path forces a pause. Otherwise a newly created
 // project could never start without a confusing resume step.

@@ -7,8 +7,10 @@ export type IntentStatus =
   | 'claimed'
   | 'running'
   | 'waiting'
+  | 'reviewing'
   | 'done'
   | 'failed'
+  | 'review_failed'
   | 'parked'
 export type RunStatus = 'running' | 'done' | 'failed' | 'canceled'
 export type FactStatus = 'unverified' | 'verified' | 'rejected'
@@ -264,6 +266,11 @@ export interface Intent {
   run_id?: string
   /** Operator/commander stop: an auto-dispatch must not resurrect it (D19). */
   hold?: boolean
+  /** No-premise harness direction after facts exist: operator must confirm the
+   *  first touch; a session cannot retry/run it itself. */
+  bootstrap?: boolean
+  /** Facts still unresolved from the last fixed-review phase. */
+  review_failed_facts?: string[]
   /** Subtree cancelled: a child settles as failed so a parent wait cannot hang. */
   aborted?: boolean
   /** Business state while a direction yields for delegated children. */
@@ -412,15 +419,16 @@ export interface Goal {
  * The machine-readable project state the explicit "append a goal and continue"
  * contract switches on (internal/api/goal_continue.go). The console shows copy
  * from these codes, not from the human-readable pause reason: a completion
- * stand-by and a manual pause are resumable by that explicit action, a provider
- * fault is refused until a human repairs the key/profile, and waiting work is
- * not a pause at all.
+ * stand-by, a manual pause and the commander's stop request are resumable by
+ * that explicit action, a provider fault is refused until a human repairs the
+ * key/profile, and waiting work is not a pause at all.
  */
 export type PauseKind =
   | 'running'
   | 'waiting_human'
   | 'completion_standby'
   | 'manual_pause'
+  | 'commander_standby'
   | 'provider_fault'
   | string
 
@@ -916,8 +924,12 @@ export interface BoardView {
     running: number
     /** Directions whose turn yielded for child intents. */
     waiting?: number
+    /** Successful runs whose fixed review phase is still running. */
+    reviewing?: number
     done: number
     failed: number
+    /** Directions whose fixed review rejected at least one conclusion. */
+    review_failed?: number
     parked: number
   }
   facts: {
@@ -935,6 +947,8 @@ export interface BoardView {
   playbooks?: { total: number; confirmed: number; candidates: number; retired?: number;archived?:number }
   open_intents: BoardItem[]
   waiting_intents?: BoardItem[]
+  reviewing_intents?: BoardItem[]
+  review_failed_intents?: BoardItem[]
   running_intents: BoardItem[]
   recent_facts: BoardItem[]
   done_intents: string[]
@@ -1040,6 +1054,9 @@ export interface BoardResponse extends BoardView {
   usage?: TokenTotals
   decider: DeciderStatus
   project_paused?: boolean
+  /** Who parked the project, as the server's machine code (PauseKind); only set
+   *  while paused. A commander stop must not be inferred from the reason prose. */
+  project_pause_kind?: PauseKind
   /** Board fingerprint for observation; durable attention controls model wakes. */
   digest?: string
   /** The watchdog's cadence and last sweep: observation, not policy (api.Watch). */
@@ -1205,15 +1222,12 @@ export interface ReportPrecheck {
 
 /**
  * How hard a direction's hard premises (from_fact_ids) must be before the
- * control plane will create/dispatch it.
- *   standard      — the premise fact must exist and must not be rejected (the
- *                   historical behaviour);
- *   verified_only — every necessary premise must be a reviewable kind and be
- *                   verified at its current claim version, with a receipt bound
- *                   to that version and intact original evidence. Legacy
- *                   manifests that still say "strict" are read as this mode.
+ * control plane will create/dispatch it. There is exactly one mode:
+ * every necessary premise must be a reviewable kind and be verified at its
+ * current claim version, with a receipt bound to that version and intact
+ * original evidence. Legacy standard/strict manifests are migrated on load.
  */
-export type PremisePolicy = 'standard' | 'verified_only'
+export type PremisePolicy = 'verified_only'
 
 /** GET/PUT /api/premise-policy. premise_policy is the project's stored choice;
  *  effective is what create/dispatch actually enforce right now (they can
@@ -1249,8 +1263,8 @@ export interface ProjectInfo {
   /** Whether a run settling now actually triggers automatic verification (the
    *  override, or --verify-auto when none). */
   verify_auto_effective: boolean
-  /** Stored hard-premise admission mode. Absent on older rows reads as
-   *  standard; a legacy "strict" manifest reads as verified_only. */
+  /** Stored hard-premise admission mode. There is one mode; legacy manifests
+   *  are migrated to verified_only on load. */
   premise_policy?: PremisePolicy
 }
 
@@ -1351,8 +1365,10 @@ export interface FleetProject {
     running: number
     /** Directions whose turn yielded for child intents. */
     waiting?: number
+    reviewing?: number
     done: number
     failed: number
+    review_failed?: number
     parked: number
   }
   facts: { total: number; with_evidence: number; verified: number }

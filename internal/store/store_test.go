@@ -158,6 +158,21 @@ func TestAddFactDefaultsToLeastTrustedOrigin(t *testing.T) {
 	}
 }
 
+// verifiedSupport creates a reviewable fact with a pass receipt. The only
+// premise mode requires both, so goal/input fixtures use this instead of a bare
+// observation.
+func verifiedSupport(t *testing.T, s *Store, evidenceID, title string) model.Fact {
+	t.Helper()
+	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: title, EvidenceIDs: []string{evidenceID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-test"}); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
 func TestPinGoalRequiresRealEvidenceAndReason(t *testing.T) {
 	s := open(t)
 	g, err := s.AddGoal(model.Goal{Statement: "拿到管理员权限", QuantifiedTarget: "至少一条 verified vault"})
@@ -180,14 +195,8 @@ func TestPinGoalRequiresRealEvidenceAndReason(t *testing.T) {
 	if _, err := s.PinGoal(g.ID, ev.ID, "   ", nil); err == nil {
 		t.Fatal("pinning without a written reason must fail: the page would have nothing to show")
 	}
-	f1, err := s.AddFact(model.Fact{Title: "first", EvidenceIDs: []string{ev.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f2, err := s.AddFact(model.Fact{Title: "second", EvidenceIDs: []string{ev.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f1 := verifiedSupport(t, s, ev.ID, "first")
+	f2 := verifiedSupport(t, s, ev.ID, "second")
 	pinned, err := s.PinGoal(g.ID, ev.ID, "  复核通过，证据覆盖目标  ",
 		[]string{f1.ID, " ", f1.ID, f2.ID})
 	if err != nil {
@@ -226,10 +235,7 @@ func TestReopenGoalWithdrawsTheStamp(t *testing.T) {
 	if _, err := s.ReopenGoal("g_missing"); err == nil {
 		t.Fatal("reopening an unknown goal must fail")
 	}
-	f, err := s.AddFact(model.Fact{Title: "support", EvidenceIDs: []string{ev.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f := verifiedSupport(t, s, ev.ID, "support")
 	if _, err := s.PinGoal(g.ID, ev.ID, "已验证", []string{f.ID}); err != nil {
 		t.Fatal(err)
 	}

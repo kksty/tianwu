@@ -3,9 +3,8 @@ import { Badge, Button, Callout, Field, Input, Select, SelectContent, SelectItem
 import { Panel } from './Page'
 import { api } from '@/lib/api'
 import { DEFAULT_PROJECT_CONSTRAINTS } from '@/lib/project-defaults'
-import { premisePolicyHint, premisePolicyLabel } from '@/lib/format'
 import { durationLabel, mergeProjectSettings, projectSettingsDraft, projectSettingsPatch } from '@/lib/settings'
-import type { ModelProfile, PremisePolicy, ProjectInfo } from '@/lib/types'
+import type { ModelProfile, ProjectInfo } from '@/lib/types'
 
 const INHERIT = '__inherit'
 
@@ -140,7 +139,7 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
         <Button type="button" size="xs" variant="outline" disabled={busy || !commander || !profiles.some(p => p.id === commander && p.runnable && !(p.probed && !p.available))}
           onClick={() => setDraft(current => ({ ...current, worker_profile: current.strong_profile }))}>执行者与指挥官相同</Button>
       </div>
-      <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <Field label="执行者并发" hint={`留空跟随实例（${defaults.max_runs || '不限'}）；0 表示不限`}>
           <Input aria-label={`${project.name} 的执行者并发`} type="number" min={0} step={1} value={draft.max_runs} placeholder="跟随实例"
             onChange={e => setDraft(current => ({ ...current, max_runs: e.target.value }))} />
@@ -149,25 +148,13 @@ export function ProjectSettingsCard({ project, profiles, active, defaults, onSav
           <Input aria-label={`${project.name} 的指挥官单轮时限`} value={draft.round_timeout} placeholder="例如 15m / 90s"
             onChange={e => setDraft(current => ({ ...current, round_timeout: e.target.value }))} />
         </Field>
-        <Field label="自动复核" hint="复核会调用模型并记录 token 用量">
-          <Select value={draft.verify_auto || INHERIT} disabled={busy} onValueChange={value => setDraft(current => ({ ...current, verify_auto: value === INHERIT ? '' : value }))}>
-            <SelectTrigger aria-label={`${project.name} 的自动复核`}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value={INHERIT}>跟随实例（{defaults.verify_auto_default ? '开启' : '关闭'}）</SelectItem>
-              <SelectItem value="on">开启自动复核</SelectItem><SelectItem value="off">仅手动复核</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="前提政策（硬前提门槛）" hint={premisePolicyHint(draft.premise_policy)}>
-          <Select value={draft.premise_policy} disabled={busy} onValueChange={value => setDraft(current => ({ ...current, premise_policy: value as PremisePolicy }))}>
-            <SelectTrigger aria-label={`${project.name} 的前提政策`}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="standard">标准（默认）：前提存在且未被否决</SelectItem>
-              <SelectItem value="verified_only">证明优先：全部必要前提须独立核验</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
       </div>
+      <Callout tone="info" className="leading-relaxed">
+        <div className="font-semibold">固定复核（verified_only）</div>
+        <div className="mt-1">
+          每个意图结束后，新的 vuln/cred 结论先由独立复核者重跑；通过后才 done，未通过进入 review_failed。host/service 等只在下游把事实当必要前提时按需复核。没有自动复核开关，也没有 standard 模式。
+        </div>
+      </Callout>
       <div className="flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
         <Button size="sm" variant="soft" onClick={() => void save()} disabled={busy || !dirty} aria-busy={busy}>
           {busy && <Spinner size="sm" className="h-3.5 w-3.5" />}

@@ -129,13 +129,13 @@ func TestCommanderActionEndpointsShareTheRules(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/goals/"+g.ID+"/complete",
 		strings.NewReader(`{"from":["f_missing"],"note":"范围已覆盖"}`)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "不存在的事实") {
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "目标依据") {
 		t.Fatalf("complete = %d %s", rec.Code, rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/goals/"+g.ID+"/complete",
-		strings.NewReader(`{"from":["f_missing"]}`)))
+		strings.NewReader(`{}`)))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "必须写 note") {
 		t.Fatalf("complete without a reason = %d %s", rec.Code, rec.Body.String())
 	}
@@ -156,12 +156,12 @@ func TestCompleteActionRecordsTheReason(t *testing.T) {
 	mux := http.NewServeMux()
 	s.Register(mux)
 
-	ev, err := st.AddEvidence(model.Evidence{Name: "p.txt", URI: "p.txt"})
+	ev := addEvidenceFile(t, st, s.CaseRoot, "in_1/p.txt", "p.txt", "text/plain", []byte("proof"))
+	f, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已复核", Status: "unverified", EvidenceIDs: []string{ev.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.AddFact(model.Fact{Kind: "vuln", Title: "已复核", Status: "verified", EvidenceIDs: []string{ev.ID}})
-	if err != nil {
+	if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-proof"}); err != nil {
 		t.Fatal(err)
 	}
 	g, err := st.AddGoal(model.Goal{Statement: "拿到 shell"})
@@ -192,8 +192,12 @@ func TestOperatorPinRequiresReason(t *testing.T) {
 	mux := http.NewServeMux()
 	s.Register(mux)
 
-	ev, err := st.AddEvidence(model.Evidence{Name: "p.txt", URI: "p.txt"})
+	ev := addEvidenceFile(t, st, s.CaseRoot, "in_1/p.txt", "p.txt", "text/plain", []byte("proof"))
+	support, err := st.AddFact(model.Fact{Kind: "vuln", Title: "支持", EvidenceIDs: []string{ev.ID}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: support.ID, Verdict: "pass", VerifierRun: "run-support"}); err != nil {
 		t.Fatal(err)
 	}
 	g, err := st.AddGoal(model.Goal{Statement: "人工盖章"})
@@ -230,8 +234,12 @@ func TestOperatorReopenWithdrawsTheStamp(t *testing.T) {
 	mux := http.NewServeMux()
 	s.Register(mux)
 
-	ev, err := st.AddEvidence(model.Evidence{Name: "p.txt", URI: "p.txt"})
+	ev := addEvidenceFile(t, st, s.CaseRoot, "in_1/p.txt", "p.txt", "text/plain", []byte("proof"))
+	support, err := st.AddFact(model.Fact{Kind: "vuln", Title: "支持", EvidenceIDs: []string{ev.ID}})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: support.ID, Verdict: "pass", VerifierRun: "run-support"}); err != nil {
 		t.Fatal(err)
 	}
 	g, err := st.AddGoal(model.Goal{Statement: "人工盖章"})

@@ -15,10 +15,7 @@ func TestCompletionReceiptFlagsChangedSupportWithoutRewritingTheStamp(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: "support", EvidenceIDs: []string{e.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f := verifiedSupport(t, s, e.ID, "support")
 	other, err := s.AddFact(model.Fact{Kind: "note", Title: "unrelated", EvidenceIDs: []string{e.ID}})
 	if err != nil {
 		t.Fatal(err)

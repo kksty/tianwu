@@ -2,17 +2,13 @@ package model
 
 import "fmt"
 
-// Premise admission policies. The product has exactly two: standard (default)
-// and verified_only (证明优先). The legacy middle mode "strict" was removed; a
-// stored strict value is migrated to verified_only by the project layer before
-// any policy reaches these helpers, so "strict" is deliberately not valid here.
-const (
-	PremiseStandard     = "standard"
-	PremiseVerifiedOnly = "verified_only"
-)
+// Premise admission has exactly one mode: verified_only (证明优先). Legacy
+// manifests are migrated to it when loaded; there is no standard/read-only
+// compatibility path in the model anymore.
+const PremiseVerifiedOnly = "verified_only"
 
 func ValidPremisePolicy(policy string) bool {
-	return policy == PremiseStandard || policy == PremiseVerifiedOnly
+	return policy == PremiseVerifiedOnly
 }
 
 // ReviewableKind describes assertions an independent read-only proof can
@@ -28,15 +24,13 @@ func ReviewableKind(kind string) bool {
 
 // PremiseIssue is the shared logical admission rule. Filesystem integrity is
 // checked separately against the frozen evidence rows before model dispatch.
-// A rejected fact is unusable in every mode. Under verified_only a necessary
-// premise must also be a reviewable kind, verified at its current claim version,
-// and backed by at least one original evidence row.
-func PremiseIssue(f Fact, policy string) string {
+// A necessary premise must be a reviewable kind, verified at its current claim
+// version, and backed by at least one original evidence row. The policy
+// parameter is retained only so callers that freeze the mode still compile; the
+// mode itself is now always verified_only.
+func PremiseIssue(f Fact, _ string) string {
 	if f.Status == "rejected" {
 		return "事实已被否定"
-	}
-	if policy != PremiseVerifiedOnly {
-		return ""
 	}
 	if !ReviewableKind(f.Kind) {
 		return "此类记录仅作参考，不能作为必要前提"
@@ -48,6 +42,29 @@ func PremiseIssue(f Fact, policy string) string {
 		return "已核验断言缺少可打开的原始证据"
 	}
 	return ""
+}
+
+// LatestReviewForClaim returns the newest verdict bound to the fact's current
+// assertion. A verdict for an older claim version is history, not the current
+// review state.
+//
+// The slice order is deliberately not part of the contract: store.Reviews
+// returns newest-first, the persisted ledger keeps append order, and both are
+// valid inputs. "Newest" is decided by CreatedAt, with a same-instant tie going
+// to the later slice element (the later append).
+func LatestReviewForClaim(f Fact, reviews []Review) (Review, bool) {
+	var latest Review
+	found := false
+	for _, r := range reviews {
+		if r.FactID != f.ID || r.ClaimVersion != f.ClaimVersion || r.ClaimHash != f.ClaimHash {
+			continue
+		}
+		// !Before covers the equal case, so a same-instant later element wins.
+		if !found || !r.CreatedAt.Before(latest.CreatedAt) {
+			latest, found = r, true
+		}
+	}
+	return latest, found
 }
 
 func CurrentProof(f Fact, reviews []Review) (Review, bool) {

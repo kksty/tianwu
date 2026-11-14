@@ -9,13 +9,17 @@ import assert from 'node:assert/strict'
 import {
   BOX_CELL,
   BoxGrid,
+  CANVAS,
+  EDGE_COLORS,
   GeometryCache,
+  INTENT_COLORS,
   LOD_SHAPES_K,
   VIEWPORT_MARGIN,
   cachedEdgeCurve,
   clipNodes,
   edgeCurve,
   edgeSetIdentity,
+  edgeStyle,
   fitText,
   isEdgeVisible,
   isNodeVisible,
@@ -341,4 +345,46 @@ test('wrapText keeps Latin words whole, breaks CJK, caps lines and ellipsises', 
   assert.ok(capped[1].endsWith('…'), 'the overflow is ellipsised, not dropped silently')
 
   assert.deepEqual(wrapText(ctx, '   ', 50, 2), [''], 'blank labels stay one empty line')
+})
+
+// --- relation encoding ---------------------------------------------------
+//
+// edgeStyle is the one contract the painter and the legend describe: solid blue
+// is the hard gate, a blocked gate is dashed red, and a reviewing direction's
+// produced-fact edge is dashed so a solid blue line can only mean one thing.
+// These are pure assertions on that contract; `paint` calls the same function.
+
+function relation(over: Partial<GraphEdge> = {}): GraphEdge {
+  return { id: 'e', source: 'f:x', target: 's:in_x', kind: 'premise', ...over }
+}
+
+test('a blocked premise is drawn dashed, in the blocked colour, not the live-execution red', () => {
+  const style = edgeStyle(relation({ blocked: true }))
+  assert.equal(style.dashed, true, 'a blocked gate must not be a solid line')
+  assert.equal(style.color, EDGE_COLORS.premiseBlocked)
+  assert.notEqual(style.color, INTENT_COLORS.running, 'live-execution red belongs to running intents')
+  assert.notEqual(style.color, CANVAS.primary)
+})
+
+test('a normal (satisfied) premise stays the solid hard-gate blue', () => {
+  const style = edgeStyle(relation())
+  assert.equal(style.dashed, false)
+  assert.equal(style.color, EDGE_COLORS.premise)
+})
+
+test('a reviewing intent edge is dashed so solid blue keeps one meaning', () => {
+  const reviewing = edgeStyle(relation({ kind: 'intent', status: 'reviewing' }))
+  assert.equal(reviewing.dashed, true)
+  assert.equal(reviewing.color, INTENT_COLORS.reviewing)
+  // Running uses marching dashes painted from the live animation, not the
+  // static dashed family; its colour is the one red in the picture.
+  const running = edgeStyle(relation({ kind: 'intent', status: 'running' }))
+  assert.equal(running.dashed, false)
+  assert.equal(running.color, INTENT_COLORS.running)
+})
+
+test('the blocked flag only dashes the premise it belongs to', () => {
+  const done = edgeStyle(relation({ kind: 'intent', status: 'done', blocked: true }))
+  assert.equal(done.dashed, false, 'a blocked flag must not leak into another relation')
+  assert.equal(done.color, INTENT_COLORS.done)
 })

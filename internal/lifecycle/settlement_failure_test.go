@@ -41,7 +41,7 @@ func TestSettlementFailureDoesNotPublishCompletion(t *testing.T) {
 			callbacks := make(chan string, 3)
 			h.svc.o.WakeDecider = func(string) { wakes.Add(1) }
 			h.svc.o.AfterSettle = func(string, string, string) { callbacks <- "settled" }
-			h.svc.o.AutoVerify = func(string) { callbacks <- "verify" }
+			h.svc.o.ReviewAfterRun = func(string, string) bool { callbacks <- "review"; return false }
 			h.svc.o.AfterProviderFailure = func(string, string, string, executor.Result) { callbacks <- "provider" }
 			h.svc.Finish(run.ID, in.ID, model.RunDone, "completed", executor.Result{}, 0)
 			got, _ := h.store.GetIntent(in.ID)

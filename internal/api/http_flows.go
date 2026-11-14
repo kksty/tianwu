@@ -20,6 +20,20 @@ func (s *Server) listHTTPFlows(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	if harnessSession(r) {
+		// A report/verification run's captures are the review's own HTTP output.
+		// Filter them by the owning run's purpose and recount from the visible
+		// rows, so a harness session cannot infer the hidden count either.
+		visible := make([]traffic.Capture, 0, len(rows))
+		for _, row := range rows {
+			if s.supportProductHidden(r, row.RunID) {
+				continue
+			}
+			visible = append(visible, row)
+		}
+		rows = visible
+		total = len(rows)
+	}
 	writeJSON(w, 200, map[string]any{"flows": rows, "total": total})
 }
 
@@ -29,6 +43,12 @@ func (s *Server) httpFlow(w http.ResponseWriter, r *http.Request) {
 	s.artifactMu.Unlock()
 	if err != nil {
 		writeErr(w, 404, "流量原件不可用："+err.Error())
+		return
+	}
+	if s.supportProductHidden(r, meta.RunID) {
+		// Same 404 as a missing capture: do not confirm a support run's HTTP
+		// observation exists (docs/01-architecture.md §8).
+		writeErr(w, 404, "流量原件不可用：没有这条记录")
 		return
 	}
 	b, err := (protojson.MarshalOptions{UseProtoNames: true}).Marshal(flow)

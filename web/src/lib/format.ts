@@ -13,6 +13,8 @@ export function statusKind(status?: string): StatusKind {
     case 'pending':
     case 'waiting':
       return 'pending'
+    case 'reviewing':
+      return 'running'
     case 'done':
     case 'ready':
     case 'pass':
@@ -22,6 +24,7 @@ export function statusKind(status?: string): StatusKind {
     case 'error':
     case 'reject':
     case 'rejected':
+    case 'review_failed':
       return 'error'
     case 'canceled':
     case 'stale':
@@ -40,8 +43,10 @@ const statusLabels: Record<string, string> = {
   claimed: '认领',
   running: '运行中',
   waiting: '等待子任务',
+  reviewing: '固定复核中',
   done: '完成',
   failed: '失败',
+  review_failed: '复核未通过',
   parked: '停放',
   canceled: '已取消',
   ready: '可用',
@@ -343,28 +348,17 @@ export function frontierPremiseChangedText(frontier?: FrontierItem): string {
   return changed.length > 0 ? `前提已变：${frontierFactList(changed)}` : ''
 }
 
-/** Human label for the project premise policy (standard/verified_only). */
+/** Human label for the only project premise policy. */
 export function premisePolicyLabel(policy?: string): string {
-  switch (policy) {
-    case 'verified_only':
-      return '证明优先'
-    case 'standard':
-      return '标准'
-    default:
-      return policy || '—'
-  }
+  return policy === 'verified_only' || !policy ? '证明优先' : policy
 }
 
-/** What a policy actually enforces, in the operator's words. */
+/** What the fixed policy actually enforces, in the operator's words. */
 export function premisePolicyHint(policy?: string): string {
-  switch (policy) {
-    case 'verified_only':
-      return '全部必要前提必须是可复核类型，且当前断言已独立核验、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。必要前提会自动排队核验。'
-    case 'standard':
-      return '前提事实存在且未被否决即可创建/派发（历史行为）；未复核的 vuln/cred 仍可当硬前提。'
-    default:
-      return ''
+  if (!policy || policy === 'verified_only') {
+    return '全部必要前提必须是可复核类型，且当前断言已独立核验、核验收据绑定当前断言、原件完整；待核验依赖可先登记，核验前不能派发。成功意图的 vuln/cred 结论会先进入固定复核。'
   }
+  return ''
 }
 
 /**

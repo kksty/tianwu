@@ -214,10 +214,17 @@ func buildGraph(db store.DB, scope string, now time.Time, factsBudget, notesBudg
 	for i := len(db.Intents) - 1; i >= 0; i-- {
 		in := db.Intents[i]
 		switch in.Status {
-		case model.StatusPending, model.StatusClaimed, model.StatusFailed:
+		case model.StatusPending, model.StatusClaimed, model.StatusFailed, model.StatusReviewFailed:
 			g.Totals.Open++
 			if len(g.Intents.Open) < graphOpenCap {
 				g.Intents.Open = append(g.Intents.Open, graphIntentOf(in, runs))
+			}
+		case model.StatusReviewing:
+			// The review phase is live work on the step: show it where a running
+			// direction is shown, not as a queued direction.
+			g.Totals.Running++
+			if len(g.Intents.Running) < graphRunningCap {
+				g.Intents.Running = append(g.Intents.Running, graphIntentOf(in, runs))
 			}
 		case model.StatusRunning:
 			g.Totals.Running++

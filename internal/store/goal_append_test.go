@@ -134,10 +134,7 @@ func TestAddGoalIdempotentLeavesStampedReceiptAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := s.AddFact(model.Fact{Kind: "vuln", Title: "支持事实", EvidenceIDs: []string{e.ID}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	f := verifiedSupport(t, s, e.ID, "支持事实")
 	stamped, err := s.AddGoal(model.Goal{Statement: "旧目标", IdempotencyKey: "old-key"})
 	if err != nil {
 		t.Fatal(err)

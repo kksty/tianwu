@@ -133,7 +133,7 @@ func (s *Store) CommanderAttentionAt(at time.Time) AttentionBatch {
 				out.Local++
 				continue
 			}
-			if in.Status == model.StatusDone || in.Status == model.StatusFailed || in.Status == model.StatusParked {
+			if in.Status == model.StatusDone || in.Status == model.StatusFailed || in.Status == model.StatusReviewFailed || in.Status == model.StatusParked {
 				add("intent:"+in.ID, c, "unowned_result", "方向已结束，没有局部承接者；需要全局判断", in.ID)
 			} else if in.Status == model.StatusPending && !in.Hold && in.Wait == nil {
 				add("intent:"+in.ID, c, "unowned_work", "待推进方向没有局部承接者", in.ID)

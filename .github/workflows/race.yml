@@ -1,0 +1,43 @@
+# 数据竞争检测（Go race detector）。需要 cgo/C 工具链：Linux 上是 gcc，
+# Windows 上是 MinGW-w64 gcc。Windows 开发机通常没有，所以本地 `make race`
+# 在缺工具链时给出指引；CI 在 Linux runner 上跑同一组包。
+#
+# 为什么是这些包：固定复核 phase 的 goroutine、Verifier.Busy/claim、
+# store.ReviewFact/UpdateIntentIfCurrent、decider 的唤醒/settle 路径都在这里，
+# 它们的状态共享靠锁和 CAS，race 检测能在真实调度下抓到单测模拟不出的越界访问。
+name: race
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: race-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: race detector (concurrency-sensitive packages)
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go test -race -count=1 -timeout 30m \
+            ./internal/api \
+            ./internal/lifecycle \
+            ./internal/verifier \
+            ./internal/store \
+            ./internal/decider \
+            ./internal/board \
+            ./internal/collab

@@ -11,8 +11,11 @@ func TestReliabilityStaleCompletionReceiptMustRequireRejudgment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.AddFact(model.Fact{Title: "support", EvidenceIDs: []string{ev.ID}, Summary: "original assertion"})
+	f, err := st.AddFact(model.Fact{Kind: "vuln", Title: "support", Status: "unverified", EvidenceIDs: []string{ev.ID}, Summary: "original assertion"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ReviewFact(model.Review{FactID: f.ID, Verdict: "pass", VerifierRun: "run-fixture"}); err != nil {
 		t.Fatal(err)
 	}
 	g, err := st.AddGoal(model.Goal{Statement: "goal"})

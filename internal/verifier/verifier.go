@@ -27,6 +27,13 @@ import (
 // own work dir.
 const VerdictPath = "review.json"
 
+// ErrBusy marks a review claim held by another reviewer. The claim is the only
+// atomic point: a caller that checked Busy first can still lose this race, so it
+// must distinguish "somebody else is proving this fact" from "the review failed"
+// and wait for the verdict that claim will publish instead of reporting a
+// failure of its own.
+var ErrBusy = errors.New("fact 正在复核中")
+
 // Verifier runs one proof per fact.
 type Verifier struct {
 	ScopeFor func() string
@@ -108,7 +115,7 @@ func (v *Verifier) Run(ctx context.Context, factID string) (model.Review, error)
 		return model.Review{}, fmt.Errorf("只复核会进报告的结论（vuln / cred），且每条只复核一次")
 	}
 	if !v.claim(factID) {
-		return model.Review{}, fmt.Errorf("fact %s 正在复核中", factID)
+		return model.Review{}, fmt.Errorf("%w: %s", ErrBusy, factID)
 	}
 	defer v.release(factID)
 	return v.runClaimed(ctx, f, factID)
@@ -127,7 +134,7 @@ func (v *Verifier) Start(ctx context.Context, factID string, onDone func()) erro
 		return fmt.Errorf("只复核会进报告的结论（vuln / cred），且每条只复核一次")
 	}
 	if !v.claim(factID) {
-		return fmt.Errorf("fact %s 正在复核中", factID)
+		return fmt.Errorf("%w: %s", ErrBusy, factID)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -165,7 +172,7 @@ func (v *Verifier) runClaimed(ctx context.Context, f model.Fact, factID string) 
 	// instruction versions on it; the single freeze then supplies the evidence
 	// rows the reviewer will cite, so the prompt and its proof addresses come
 	// from one ledger moment.
-	policy := model.PremiseStandard
+	policy := model.PremiseVerifiedOnly
 	scope := ""
 	if v.ScopeFor != nil {
 		scope = v.ScopeFor()

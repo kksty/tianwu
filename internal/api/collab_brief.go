@@ -33,7 +33,7 @@ func (s *Server) collaborationSection(self model.Intent) string {
 			continue
 		}
 		switch in.Status {
-		case model.StatusDone, model.StatusFailed, model.StatusParked:
+		case model.StatusDone, model.StatusFailed, model.StatusReviewFailed, model.StatusParked:
 			continue // no live holder: a message would be queued forever
 		}
 		// The peer's tier is the one frozen on its current run. It is optional

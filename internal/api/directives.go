@@ -182,7 +182,7 @@ func (s *Server) writeCommanderDirective(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) writeIntentDirective(w http.ResponseWriter, r *http.Request, text string, target model.Intent, idem string) {
-	if target.Status == model.StatusDone || target.Status == model.StatusFailed || target.Status == model.StatusParked {
+	if target.Status == model.StatusDone || target.Status == model.StatusFailed || target.Status == model.StatusReviewFailed || target.Status == model.StatusParked {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error": "目标方向已结束（" + target.Status + "）：显式 retry/reopen 之后再下发，一次性提示不能复活它",
 			"code":  "directive_target_finished",
