@@ -1,7 +1,6 @@
-﻿# 本机跑与 CI 相同的 race 检测（需要 cgo / C 工具链）
+﻿# 本机跑 race 检测（需要 cgo / C 工具链）
 #
-# GitHub Actions 的 race 工作流在本账号上改为手动触发（托管 runner 的计费被锁），
-# 日常提交前请本地跑：
+# 本仓库不使用 GitHub Actions；提交前本地跑：
 #   powershell -ExecutionPolicy Bypass -File scripts/race.ps1
 # 有 make 的环境（git-bash/WSL）也可以 `make race`。
 #
@@ -11,7 +10,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-# 与 .github/workflows/race.yml 和 Makefile 的 RACE_PKGS 保持一致。
+# 与 Makefile 的 RACE_PKGS 保持一致。
 $packages = @(
   './internal/api',
   './internal/lifecycle',

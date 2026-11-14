@@ -42,13 +42,13 @@ test:
 	go test ./...
 
 # 数据竞争检测：-race 需要 cgo/C 工具链（Linux gcc / Windows MinGW-w64 gcc）。
-# 缺编译器时给出可读指引，而不是一个难懂的 cgo 错误；CI 跑同一组包。
+# 缺编译器时给出可读指引，而不是一个难懂的 cgo 错误。
 RACE_PKGS ?= ./internal/api ./internal/lifecycle ./internal/verifier ./internal/store ./internal/decider ./internal/board ./internal/collab
 
 race:
 	@command -v "$$(go env CC)" >/dev/null 2>&1 || { \
 	  echo "race 检测需要 C 工具链（cgo）：本机没有 $$(go env CC)。" >&2; \
-	  echo "请用 WSL/Docker/Linux 跑 make race，或看 CI：.github/workflows/race.yml" >&2; \
+	  echo "请用 WSL/Docker/Linux 跑 make race，或安装 MinGW-w64（见 CONTRIBUTING）" >&2; \
 	  exit 1; \
 	}
 	CGO_ENABLED=1 go test -race -count=1 -timeout 30m $(RACE_PKGS)
