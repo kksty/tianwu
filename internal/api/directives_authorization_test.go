@@ -125,26 +125,73 @@ func TestPlainDirectiveIsNotAnAuthorization(t *testing.T) {
 }
 
 // A one-shot hint has no revocation point, so it cannot be a permission; the
-// request is refused instead of being downgraded silently.
-func TestOneShotCannotBeAnAuthorization(t *testing.T) {
+// Ticking the mark on a one-shot dispatch to a direction upgrades it: the
+// sentence becomes a persistent, revocable Instruction instead of being refused
+// or silently staying a hint. The response keeps the same shape, so the console
+// can render "已记入授权链" from the record rather than from the request.
+func TestOneShotAuthorizationUpgradesToPersistentInstruction(t *testing.T) {
 	s, p := newBindingServer(t)
 	in, _ := p.Store.CreateIntent(model.Intent{Title: "A"})
 	rec := call(t, s, http.MethodPost, "/api/directives", map[string]any{
-		"text": "顺手测一下", "target": "intent", "intent_id": in.ID,
+		"text": "真实订阅 topic 可测，只留元信息", "target": "intent", "intent_id": in.ID,
 		"as_authorization": true, "idempotency_key": "hint-auth",
 	})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "directive_invalid") {
-		t.Fatalf("one-shot authorization = %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upgraded directive = %d %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "已记入授权链") {
-		t.Fatalf("refusal claimed to have recorded a chain: %s", rec.Body.String())
+	var out directiveResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Kind != "instruction" || out.Instruction == nil || !out.Instruction.Authorization {
+		t.Fatalf("upgrade did not create an authorization instruction: %+v", out)
+	}
+	if out.Authorization == nil || out.Authorization.Scope != "intent:"+in.ID || !out.Authorization.VisibleToCommander {
+		t.Fatalf("upgrade receipt = %+v", out.Authorization)
+	}
+	if out.Authorization.ID != out.Instruction.ID || out.Authorization.Version != out.Instruction.Version {
+		t.Fatalf("receipt %+v does not match instruction %+v", out.Authorization, out.Instruction)
 	}
 	db := p.Store.Snapshot()
-	if len(db.Instructions) != 0 || len(db.Messages) != 0 {
-		t.Fatalf("refused request wrote rows: instructions=%d messages=%d", len(db.Instructions), len(db.Messages))
+	if len(db.Instructions) != 1 {
+		t.Fatalf("instructions = %d", len(db.Instructions))
+	}
+	// It is a boundary, not a hint: nothing was addressed to that direction's next
+	// turn as a one-shot directive. The only message a dispatch produces is the
+	// instruction notice the ledger itself queues.
+	for _, m := range db.Messages {
+		if m.Kind == "directive" {
+			t.Fatalf("upgrade also sent a one-shot directive: %+v", m)
+		}
 	}
 	if got := len(p.Store.PendingFor(collab.ParticipantID(in.ID))); got != 0 {
-		t.Fatalf("refused request delivered a hint: %d", got)
+		t.Fatalf("upgrade queued a hint for the direction: %d", got)
+	}
+}
+
+// The upgrade is only meaningful where there is a scope to persist: a broadcast,
+// a project-wide dispatch and a message to the commander all have to choose
+// their lifetime explicitly, and none of them may become an authorization here.
+func TestAuthorizationUpgradeRejectsScopesWithoutALifetime(t *testing.T) {
+	s, p := newBindingServer(t)
+	in, _ := p.Store.CreateIntent(model.Intent{Title: "A"})
+	cases := []map[string]any{
+		{"text": "整个项目", "target": "project", "as_authorization": true},
+		{"text": "给指挥官", "target": "commander", "as_authorization": true},
+		{"text": "群发", "target": "executors", "as_authorization": true},
+	}
+	for _, body := range cases {
+		body["idempotency_key"] = "up-" + body["target"].(string)
+		rec := call(t, s, http.MethodPost, "/api/directives", body)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "directive_invalid") {
+			t.Fatalf("%v upgrade = %d %s", body["target"], rec.Code, rec.Body.String())
+		}
+	}
+	if db := p.Store.Snapshot(); len(db.Instructions) != 0 || len(db.Messages) != 0 {
+		t.Fatalf("refused upgrades wrote rows: instructions=%d messages=%d", len(db.Instructions), len(db.Messages))
+	}
+	if got := len(p.Store.PendingFor(collab.ParticipantID(in.ID))); got != 0 {
+		t.Fatalf("refused upgrade delivered something: %d", got)
 	}
 }
 

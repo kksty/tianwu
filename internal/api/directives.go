@@ -105,14 +105,22 @@ func (s *Server) operatorDirective(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.AsAuthorization && !req.Persistent {
-		// The mark means "this changes the boundary". A one-shot hint has no
-		// lifetime, so recording it as a permission would create something the
-		// operator can never revoke and the model can cite forever.
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "一次性提示不能作为授权变更：授权要能撤销，请选「持续到撤销」再勾选",
-			"code":  "directive_invalid",
-		})
-		return
+		// The mark says "this changes the boundary", and a boundary that lives for
+		// one turn can be neither revoked nor re-read. So the mark upgrades the
+		// dispatch instead of being refused: the operator's sentence becomes a
+		// persistent Instruction with an id, a version and a revoke path — exactly
+		// what choosing 持续到撤销 would produce, minus the extra form step.
+		// Only a direction has a scope to persist; project-wide and commander
+		// dispatches must pick their lifetime explicitly, and a broadcast has no
+		// single scope at all.
+		if target != "intent" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "只有发给某个方向的一次性提示可以勾选「作为授权变更」：勾选会把它升级为持续指令；整个项目请直接选「持续到撤销」，发给指挥官不能作为授权",
+				"code":  "directive_invalid",
+			})
+			return
+		}
+		req.Persistent = true
 	}
 	if target == "commander" && (req.Persistent || req.Steer) {
 		// A constraint is project/direction state, not a private chat with one
